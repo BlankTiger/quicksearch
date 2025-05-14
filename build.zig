@@ -54,10 +54,26 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&run_lib_unit_tests.step);
     }
 
+    {
+        const benchmark_mod = b.createModule(.{
+            .root_source_file = b.path("./src/benchmarks/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
 
-    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_exe_unit_tests.step);
-    test_step.dependOn(&run_lib_unit_tests.step);
+        const benchmark_exe = b.addExecutable(.{
+            .name = "quicksearch-bench",
+            .root_module = benchmark_mod,
+        });
+        benchmark_exe.root_module.addImport("qslib", lib_mod);
+
+        const run_benchmarks_cmd = b.addRunArtifact(benchmark_exe);
+        run_benchmarks_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| {
+            run_benchmarks_cmd.addArgs(args);
+        }
+
+        const run_benchmarks_step = b.step("bench", "Run benchmarks");
+        run_benchmarks_step.dependOn(&run_benchmarks_cmd.step);
+    }
 }
