@@ -15,33 +15,45 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
-    const mod = b.createModule(.{
+    const lib_mod = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
     });
-    exe.root_module.addImport("qslib", mod);
 
-    b.installArtifact(exe);
+    {
+        exe.root_module.addImport("qslib", lib_mod);
 
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+        b.installArtifact(exe);
+
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+
+        const run_step = b.step("run", "Run the app");
+        run_step.dependOn(&run_cmd.step);
     }
 
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+    {
+        const exe_unit_tests = b.addTest(.{
+            .root_module = exe_mod,
+        });
 
-    const exe_unit_tests = b.addTest(.{
-        .root_module = exe_mod,
-    });
+        const lib_unit_tests = b.addTest(.{
+            .root_module = lib_mod,
+            .target = target,
+            .optimize = optimize,
+        });
 
-    const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/lib.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+        const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+        const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
+        const test_step = b.step("test", "Run unit tests");
+        test_step.dependOn(&run_exe_unit_tests.step);
+        test_step.dependOn(&run_lib_unit_tests.step);
+    }
+
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
