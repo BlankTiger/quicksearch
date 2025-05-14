@@ -1,9 +1,9 @@
-const SearchResult = struct {
+pub const SearchResult = struct {
     line: usize,
     col: usize,
 };
 
-fn search(alloc: mem.Allocator, haystack: []const u8, query: []const u8) ![]SearchResult {
+pub fn search(alloc: mem.Allocator, haystack: []const u8, query: []const u8) ![]SearchResult {
     var results = std.ArrayList(SearchResult).init(alloc);
     errdefer results.deinit();
 
