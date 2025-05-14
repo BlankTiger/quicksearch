@@ -1,6 +1,6 @@
 pub fn main() !void {
     var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa_state.deinit();
+    defer std.debug.assert(gpa_state.deinit() == .ok);
     const alloc = gpa_state.allocator();
 
     const results: []lib.SearchResult = try lib.search(alloc, "hihihi", "hi");
