@@ -3,8 +3,14 @@ pub fn main() !void {
     defer std.debug.assert(gpa_state.deinit() == .ok);
     const alloc = gpa_state.allocator();
 
-    const results: []lib.SearchResult = try lib.search(alloc, "hihihi", "hi");
-    defer alloc.free(results);
+    const linear_results = try lib.linear_search(alloc, "hihihi", "hi");
+    defer alloc.free(linear_results);
+
+    const linear_std_results = try lib.linear_std_search(alloc, "hihihi", "hi");
+    defer alloc.free(linear_std_results);
+
+    const simd_results = try lib.simd_search(alloc, "hihihi", "hi");
+    defer alloc.free(simd_results);
 }
 
 const lib = @import("qslib");
