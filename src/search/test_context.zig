@@ -11,4 +11,4 @@ pub const search_fns: [3]struct { FNType, []const u8 } = .{
 };
 
 const std = @import("std");
-const lib = @import("search.zig");
+const lib = @import("lib.zig");
