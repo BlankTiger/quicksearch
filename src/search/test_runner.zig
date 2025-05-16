@@ -1,7 +1,3 @@
-const std = @import("std");
-const builtin = @import("builtin");
-const t_context = @import("test_context.zig");
-
 pub fn main() !void {
     std.debug.print("Running tests for search fns using a custom runner\n", .{});
 
@@ -47,3 +43,7 @@ pub fn main() !void {
 fn is_setup(name: []const u8) bool {
     return std.mem.eql(u8, name, "SETUP SEARCH FN");
 }
+
+const std = @import("std");
+const builtin = @import("builtin");
+const t_context = @import("test_context.zig");

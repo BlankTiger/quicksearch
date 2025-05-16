@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
         });
 
         const search_mod = b.addModule("searchlib", .{
-            .root_source_file = b.path("src/search/search.zig"),
+            .root_source_file = b.path("src/search.zig"),
             .target = target,
             .optimize = optimize,
         });
