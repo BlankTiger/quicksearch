@@ -4,6 +4,8 @@ pub const SearchResult = struct {
 };
 
 pub fn linear_search(alloc: mem.Allocator, haystack: []const u8, query: []const u8) anyerror![]SearchResult {
+    if (query.len > haystack.len) return error.QueryLongerThanHaystack;
+
     var results = std.ArrayList(SearchResult).init(alloc);
     errdefer results.deinit();
 
@@ -21,6 +23,8 @@ pub fn linear_search(alloc: mem.Allocator, haystack: []const u8, query: []const 
 }
 
 pub fn linear_std_search(alloc: mem.Allocator, haystack: []const u8, query: []const u8) anyerror![]SearchResult {
+    if (query.len > haystack.len) return error.QueryLongerThanHaystack;
+
     var results = std.ArrayList(SearchResult).init(alloc);
     errdefer results.deinit();
 
@@ -38,6 +42,8 @@ pub fn linear_std_search(alloc: mem.Allocator, haystack: []const u8, query: []co
 }
 
 pub fn simd_search(alloc: mem.Allocator, haystack: []const u8, query: []const u8) anyerror![]SearchResult {
+    if (query.len > haystack.len) return error.QueryLongerThanHaystack;
+
     var results = std.ArrayList(SearchResult).init(alloc);
     errdefer results.deinit();
 
@@ -70,6 +76,14 @@ const Tests = struct {
         defer idx_curr_fn += 1;
         search_fn = t_context.search_fns[idx_curr_fn][0];
         name = t_context.search_fns[idx_curr_fn][1];
+    }
+
+    test "query must be longer than haystack" {
+        const err = search_fn(t.allocator, "hi", "hih");
+        try t.expectError(error.QueryLongerThanHaystack, err);
+
+        const not_err = try search_fn(t.allocator, "hi", "hi");
+        defer t.allocator.free(not_err);
     }
 
     const input1 = "some bytes here";
@@ -111,13 +125,6 @@ const Tests = struct {
         try t.expectEqual(3, results.len);
     }
 
-    test "search function only finds entire matches" {
-        const results = try search_fn(t.allocator, "hi", "hihi");
-        defer t.allocator.free(results);
-
-        try t.expectEqual(0, results.len);
-    }
-
     test "search function returns line info per match" {
         const results = try search_fn(t.allocator, "hi hello\nhi hello", "hi");
         defer t.allocator.free(results);
@@ -142,13 +149,6 @@ const Tests = struct {
 
         try t.expectEqual(3, results[1].line);
         try t.expectEqual(1, results[1].col);
-    }
-
-    test "search in empty line yields no results" {
-        const results = try search_fn(t.allocator, "", "hi");
-        defer t.allocator.free(results);
-
-        try t.expectEqual(0, results.len);
     }
 };
 
