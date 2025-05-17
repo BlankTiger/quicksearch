@@ -21,11 +21,6 @@ pub fn main() !void {
             defer alloc.free(linear_results);
         },
 
-        .all_linear_std => {
-            const linear_std_results = try all.linear_std_search(alloc, data, query);
-            defer alloc.free(linear_std_results);
-        },
-
         .all_simd => {
             const simd_results = try all.simd_search(alloc, data, query);
             defer alloc.free(simd_results);
@@ -34,11 +29,6 @@ pub fn main() !void {
         .first_linear => {
             const linear_results = try first.linear_search(alloc, data, query);
             defer alloc.free(linear_results);
-        },
-
-        .first_linear_std => {
-            const linear_std_results = try first.linear_std_search(alloc, data, query);
-            defer alloc.free(linear_std_results);
         },
 
         .first_simd => {
@@ -50,11 +40,9 @@ pub fn main() !void {
 
 const Method = enum {
     all_linear,
-    all_linear_std,
     all_simd,
 
     first_linear,
-    first_linear_std,
     first_simd,
 };
 
