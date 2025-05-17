@@ -76,9 +76,6 @@ pub fn simd_search_impl_threaded(
     if (query.len > haystack.len) return;
     if (query.len == 0) return;
 
-    var local_results = std.ArrayList(SearchResult).initCapacity(std.heap.page_allocator, 128) catch return; // Small local buffer
-    defer local_results.deinit();
-
     const MAX_U8 = std.math.maxInt(u8);
     const vector_len = simd.suggestVectorLength(u8) orelse 16;
     const T = @Vector(vector_len, u8);
@@ -115,7 +112,7 @@ pub fn simd_search_impl_threaded(
                         continue;
 
                     if (mem.eql(u8, line[match_pos .. match_pos + query.len], query)) {
-                        local_results.append(SearchResult{
+                        results.append(SearchResult{
                             .line = current_line,
                             .col = match_pos + 1,
                         }) catch return;
@@ -132,33 +129,14 @@ pub fn simd_search_impl_threaded(
             var pos = line_pos;
             while (pos <= line.len - query.len) : (pos += 1) {
                 if (mem.eql(u8, line[pos .. pos + query.len], query)) {
-                    local_results.append(SearchResult{
+                    results.append(SearchResult{
                         .line = current_line,
                         .col = pos + 1,
                     }) catch return;
                 }
             }
         }
-
-        if (local_results.items.len >= 64) {
-            flush_results(results, &local_results) catch return;
-        }
     }
-
-    if (local_results.items.len > 0) {
-        flush_results(results, &local_results) catch return;
-    }
-}
-
-fn flush_results(global_results: *ResultsStore, local_results: *std.ArrayList(SearchResult)) !void {
-    global_results.mutex.lock();
-    defer global_results.mutex.unlock();
-
-    for (local_results.items) |result| {
-        try global_results.results.append(result);
-    }
-
-    local_results.clearRetainingCapacity();
 }
 
 pub fn simd_search_impl(
