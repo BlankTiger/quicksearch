@@ -85,13 +85,15 @@ pub fn build(b: *std.Build) void {
         });
         benchmark_exe.root_module.addImport("qslib", lib_mod);
 
+        b.installArtifact(benchmark_exe);
+
         const run_benchmarks_cmd = b.addRunArtifact(benchmark_exe);
         run_benchmarks_cmd.step.dependOn(b.getInstallStep());
         if (b.args) |args| {
             run_benchmarks_cmd.addArgs(args);
         }
 
-        const run_benchmarks_step = b.step("bench", "Run benchmarks");
+        const run_benchmarks_step = b.step("run-bench", "Run benchmarks");
         run_benchmarks_step.dependOn(&run_benchmarks_cmd.step);
     }
 }
