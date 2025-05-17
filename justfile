@@ -20,3 +20,12 @@ flamegraph:
     rm ./perf.data*
     perf record -g zig-out/bin/quicksearch-bench tests/artifact.txt 'bibendum' all_simd
     perf script | inferno-collapse-perf | inferno-flamegraph > flamegraph.svg
+callgrind:
+    zig build
+    valgrind --tool=callgrind zig-out/bin/quicksearch-bench ../artifact.txt 'bibendum' all_simd
+    kcachegrind callgrind.out.*
+
+cachegrind:
+    zig build
+    valgrind --tool=cachegrind --cache-sim=yes --branch-sim=yes zig-out/bin/quicksearch-bench ../artifact.txt 'bibendum' all_simd
+    kcachegrind cachegrind.out.*
