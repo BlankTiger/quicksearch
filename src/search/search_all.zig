@@ -1,4 +1,8 @@
-pub fn linear_search(alloc: mem.Allocator, haystack: []const u8, query: []const u8) anyerror![]SearchResult {
+pub fn linear_search(
+    alloc: mem.Allocator,
+    haystack: []const u8,
+    query: []const u8,
+) anyerror![]SearchResult {
     if (query.len > haystack.len) return error.QueryLongerThanHaystack;
 
     var results = std.ArrayList(SearchResult).init(alloc);
@@ -21,7 +25,11 @@ pub fn linear_search(alloc: mem.Allocator, haystack: []const u8, query: []const 
     return results.toOwnedSlice();
 }
 
-pub fn linear_std_search(alloc: mem.Allocator, haystack: []const u8, query: []const u8) anyerror![]SearchResult {
+pub fn linear_std_search(
+    alloc: mem.Allocator,
+    haystack: []const u8,
+    query: []const u8,
+) anyerror![]SearchResult {
     if (query.len > haystack.len) return error.QueryLongerThanHaystack;
 
     var results = std.ArrayList(SearchResult).init(alloc);
@@ -40,23 +48,13 @@ pub fn linear_std_search(alloc: mem.Allocator, haystack: []const u8, query: []co
     return results.toOwnedSlice();
 }
 
-pub fn simd_search(alloc: mem.Allocator, haystack: []const u8, query: []const u8) anyerror![]SearchResult {
-    if (query.len > haystack.len) return error.QueryLongerThanHaystack;
-
-    var results = std.ArrayList(SearchResult).init(alloc);
-    errdefer results.deinit();
-
-    var count_lines: usize = 1;
-    var line_iter = mem.splitScalar(u8, haystack, '\n');
-    while (line_iter.next()) |line| : (count_lines += 1) {
-        var col_last: usize = 0;
-        while (mem.indexOfPos(u8, line, col_last, query)) |col| {
-            col_last = col + 1;
-            try results.append(.{ .line = count_lines, .col = col_last });
-        }
-    }
-
-    return results.toOwnedSlice();
+pub fn simd_search(
+    alloc: mem.Allocator,
+    haystack: []const u8,
+    query: []const u8,
+) anyerror![]SearchResult {
+    // TODO: create the SIMD impl
+    return linear_std_search(alloc, haystack, query);
 }
 
 test {
@@ -66,7 +64,7 @@ test {
 /// THESE TESTS ARE RUN USING A CUSTOM TEST RUNNER
 const Tests = struct {
     const t_context = @import("test_context.zig");
-    var search_fn: t_context.FNType = undefined;
+    var search_fn: t_context.FnType = undefined;
     var name: []const u8 = undefined;
     var idx_curr_fn: usize = 0;
 
