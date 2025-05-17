@@ -12,8 +12,8 @@ pub fn main() !void {
     const method_txt = args[2];
     const method = get_method(method_txt);
 
-    const data = try get_data(alloc, path_to_data);
-    defer alloc.free(data);
+    const data = try get_data(path_to_data);
+    defer std.posix.munmap(data);
 
     switch (method) {
         .all_linear => {
@@ -69,11 +69,13 @@ fn get_method(txt: []const u8) Method {
     );
 }
 
-fn get_data(alloc: std.mem.Allocator, path: []const u8) ![]const u8 {
+fn get_data(path: []const u8) ![]align(std.heap.page_size_min) const u8 {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
+    const stats = try std.posix.fstat(file.handle);
+    const mem = try std.posix.mmap(null, @intCast(stats.size), std.posix.PROT.READ, .{ .TYPE = .SHARED }, file.handle, 0);
 
-    return try file.readToEndAlloc(alloc, 500e12);
+    return mem;
 }
 
 const all = @import("qslib").search.all;
