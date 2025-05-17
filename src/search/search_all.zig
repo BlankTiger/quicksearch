@@ -55,8 +55,75 @@ pub fn simd_search(
     haystack: []const u8,
     query: []const u8,
 ) anyerror![]SearchResult {
-    // TODO: create the SIMD impl
-    return linear_std_search(alloc, haystack, query);
+    if (query.len > haystack.len) return &[_]SearchResult{};
+    if (query.len == 0) return &[_]SearchResult{};
+
+    var results = std.ArrayList(SearchResult).init(alloc);
+    errdefer results.deinit();
+
+    const MAX_U8 = std.math.maxInt(u8);
+    const vector_len = simd.suggestVectorLength(u8) orelse 16;
+    const T = @Vector(vector_len, u8);
+
+    const q_start: T = @splat(query[0]);
+    const max_vals: T = @splat(MAX_U8);
+    const indexes = simd.iota(u8, vector_len);
+
+    var current_line: usize = 1;
+    var line_iter = mem.splitScalar(u8, haystack, '\n');
+
+    while (line_iter.next()) |line| : (current_line += 1) {
+        if (line.len < query.len) continue;
+
+        var line_pos: usize = 0;
+
+        while (line_pos + vector_len <= line.len) {
+            const part: T = line[line_pos .. line_pos + vector_len][0..vector_len].*;
+            const matches_start = part == q_start;
+
+            if (@reduce(.Or, matches_start)) {
+                const selected_indexes = @select(u8, matches_start, indexes, max_vals);
+
+                for (0..vector_len) |idx| {
+                    if (selected_indexes[idx] == MAX_U8) continue; // No match at this position
+
+                    // Check if there's enough room for the full query from the current idx to the end
+                    const match_pos = line_pos + idx;
+                    if (match_pos + query.len > line.len) continue;
+
+                    // Verify the last character matches to filter out obvious non-matches
+                    if (match_pos + query.len - 1 < line.len and
+                        line[match_pos + query.len - 1] != query[query.len - 1])
+                        continue;
+
+                    if (mem.eql(u8, line[match_pos .. match_pos + query.len], query)) {
+                        try results.append(SearchResult{
+                            .line = current_line,
+                            .col = match_pos + 1,
+                        });
+                    }
+                }
+            }
+
+            line_pos += vector_len;
+        }
+
+        // Handle the remaining characters that don't fill a complete vector
+        const remaining = line.len - line_pos;
+        if (remaining >= query.len) {
+            var pos = line_pos;
+            while (pos <= line.len - query.len) : (pos += 1) {
+                if (mem.eql(u8, line[pos .. pos + query.len], query)) {
+                    try results.append(SearchResult{
+                        .line = current_line,
+                        .col = pos + 1,
+                    });
+                }
+            }
+        }
+    }
+
+    return results.toOwnedSlice();
 }
 
 test {
