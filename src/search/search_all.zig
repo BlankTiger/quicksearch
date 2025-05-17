@@ -27,6 +27,123 @@ pub fn simd_search(
     haystack: []const u8,
     query: []const u8,
 ) anyerror![]SearchResult {
+    if (haystack.len > 10e6) {
+        var results: ResultsStore = .{ .results = try .initCapacity(alloc, 2048) };
+        errdefer results.results.deinit();
+        const cpu_count = @min(8, try std.Thread.getCpuCount());
+        const threads: []std.Thread = try alloc.alloc(std.Thread, cpu_count);
+        defer alloc.free(threads);
+        const bytes_per_thread = haystack.len / cpu_count;
+        for (0..cpu_count) |idx| {
+            // BUG: this has a nasty problem of the haystack not being split on line boundaries
+            // this means that we might miss some matches, the only idea to fix this that comes
+            // to mind is splitting on a newline, but I'm not sure how to do that efficiently
+            //
+            // okay, maybe I have an idea, maybe we can search for the nearest newline from the idx end
+            // and use that
+            const idx_start = idx * bytes_per_thread;
+            const idx_end = (idx + 1) * bytes_per_thread;
+            threads[idx] = try std.Thread.spawn(
+                .{ .allocator = alloc },
+                simd_search_impl_threaded,
+                .{ &results, haystack[idx_start..idx_end], query },
+            );
+        }
+        for (threads) |thread| thread.join();
+        return try results.results.toOwnedSlice();
+        // return &.{};
+    } else {
+        return simd_search_impl(alloc, haystack, query);
+    }
+}
+
+const ResultsStore = struct {
+    mutex: std.Thread.Mutex = .{},
+    results: std.ArrayList(SearchResult),
+
+    fn append(self: *@This(), result: SearchResult) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        try self.results.append(result);
+    }
+};
+
+pub fn simd_search_impl_threaded(
+    results: *ResultsStore,
+    haystack: []const u8,
+    query: []const u8,
+) void {
+    if (query.len > haystack.len) return;
+    if (query.len == 0) return;
+
+    const MAX_U8 = std.math.maxInt(u8);
+    const vector_len = simd.suggestVectorLength(u8) orelse 16;
+    const T = @Vector(vector_len, u8);
+
+    const q_start: T = @splat(query[0]);
+    const max_vals: T = @splat(MAX_U8);
+    const indexes = simd.iota(u8, vector_len);
+
+    var current_line: usize = 1;
+    var line_iter = mem.splitScalar(u8, haystack, '\n');
+
+    while (line_iter.next()) |line| : (current_line += 1) {
+        if (line.len < query.len) continue;
+
+        var line_pos: usize = 0;
+
+        while (line_pos + vector_len <= line.len) {
+            const part: T = line[line_pos .. line_pos + vector_len][0..vector_len].*;
+            const matches_start = part == q_start;
+
+            if (@reduce(.Or, matches_start)) {
+                const selected_indexes = @select(u8, matches_start, indexes, max_vals);
+
+                for (0..vector_len) |idx| {
+                    if (selected_indexes[idx] == MAX_U8) continue; // No match at this position
+
+                    // Check if there's enough room for the full query from the current idx to the end
+                    const match_pos = line_pos + idx;
+                    if (match_pos + query.len > line.len) continue;
+
+                    // Verify the last character matches to filter out obvious non-matches
+                    if (match_pos + query.len - 1 < line.len and
+                        line[match_pos + query.len - 1] != query[query.len - 1])
+                        continue;
+
+                    if (mem.eql(u8, line[match_pos .. match_pos + query.len], query)) {
+                        results.append(SearchResult{
+                            .line = current_line,
+                            .col = match_pos + 1,
+                        }) catch return;
+                    }
+                }
+            }
+
+            line_pos += vector_len;
+        }
+
+        // Handle the remaining characters that don't fill a complete vector
+        const remaining = line.len - line_pos;
+        if (remaining >= query.len) {
+            var pos = line_pos;
+            while (pos <= line.len - query.len) : (pos += 1) {
+                if (mem.eql(u8, line[pos .. pos + query.len], query)) {
+                    results.append(SearchResult{
+                        .line = current_line,
+                        .col = pos + 1,
+                    }) catch return;
+                }
+            }
+        }
+    }
+}
+
+pub fn simd_search_impl(
+    alloc: mem.Allocator,
+    haystack: []const u8,
+    query: []const u8,
+) anyerror![]SearchResult {
     if (query.len > haystack.len) return &[_]SearchResult{};
     if (query.len == 0) return &[_]SearchResult{};
 
