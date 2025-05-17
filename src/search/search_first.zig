@@ -3,7 +3,8 @@ pub fn linear_search(
     haystack: []const u8,
     query: []const u8,
 ) anyerror![]SearchResult {
-    if (query.len > haystack.len) return error.QueryLongerThanHaystack;
+    if (query.len > haystack.len) return &[_]SearchResult{};
+    if (query.len == 0) return &[_]SearchResult{};
 
     var results = std.ArrayList(SearchResult).init(alloc);
     errdefer results.deinit();
@@ -31,7 +32,8 @@ pub fn linear_std_search(
     haystack: []const u8,
     query: []const u8,
 ) anyerror![]SearchResult {
-    if (query.len > haystack.len) return error.QueryLongerThanHaystack;
+    if (query.len > haystack.len) return &[_]SearchResult{};
+    if (query.len == 0) return &[_]SearchResult{};
 
     var results = std.ArrayList(SearchResult).init(alloc);
     errdefer results.deinit();
@@ -73,12 +75,11 @@ const Tests = struct {
         name = t_context.search_first_fns[idx_curr_fn][1];
     }
 
-    test "query must be longer than haystack" {
-        const err = search_fn(t.allocator, "hi", "hih");
-        try t.expectError(error.QueryLongerThanHaystack, err);
+    test "no results for query thats longer than haystack" {
+        const results = try search_fn(t.allocator, "hi", "hih");
+        defer t.allocator.free(results);
 
-        const not_err = try search_fn(t.allocator, "hi", "hi");
-        defer t.allocator.free(not_err);
+        try t.expectEqual(0, results.len);
     }
 
     const input1 = "some bytes here";
