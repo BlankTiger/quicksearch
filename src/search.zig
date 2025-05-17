@@ -4,3 +4,4 @@ test {
 
 pub const all = @import("search/search_all.zig");
 pub const first = @import("search/search_first.zig");
+pub const SearchResult = @import("search/SearchResult.zig");
