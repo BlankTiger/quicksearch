@@ -1,8 +1,6 @@
-pub const search = lib.search_simd;
-pub const SearchResult = lib.SearchResult;
-
 test {
-    _ = lib;
+    _ = @import("std").testing.refAllDecls(@This());
 }
 
-pub const lib = @import("search/lib.zig");
+pub const all = @import("search/search_all.zig");
+pub const first = @import("search/search_first.zig");
