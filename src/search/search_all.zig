@@ -42,7 +42,10 @@ pub fn simd_search(
             // okay, maybe I have an idea, maybe we can search for the nearest newline from the idx end
             // and use that
             const idx_start = idx * bytes_per_thread;
-            const idx_end = (idx + 1) * bytes_per_thread;
+            var idx_end = (idx + 1) * bytes_per_thread;
+            if (idx == cpu_count - 1) {
+                idx_end = haystack.len - 1;
+            }
             threads[idx] = try std.Thread.spawn(
                 .{ .allocator = alloc },
                 simd_search_impl_threaded,
