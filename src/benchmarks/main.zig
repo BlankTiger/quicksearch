@@ -15,27 +15,28 @@ pub fn main() !void {
     const data = try get_data(path_to_data);
     defer std.posix.munmap(data);
 
+    var results: []const SearchResult = undefined;
+    defer alloc.free(results);
+
     switch (method) {
         .all_linear => {
-            const linear_results = try all.linear_search(alloc, data, query);
-            defer alloc.free(linear_results);
+            results = try all.linear_search(alloc, data, query);
         },
 
         .all_simd => {
-            const simd_results = try all.simd_search(alloc, data, query);
-            defer alloc.free(simd_results);
+            results = try all.simd_search(alloc, data, query);
         },
 
         .first_linear => {
-            const linear_results = try first.linear_search(alloc, data, query);
-            defer alloc.free(linear_results);
+            results = try first.linear_search(alloc, data, query);
         },
 
         .first_simd => {
-            const simd_results = try first.simd_search(alloc, data, query);
-            defer alloc.free(simd_results);
+            results = try first.simd_search(alloc, data, query);
         },
     }
+
+    log.info("Found: {d}", .{results.len});
 }
 
 const Method = enum {
@@ -80,4 +81,6 @@ fn get_data(path: []const u8) ![]align(std.heap.page_size_min) const u8 {
 
 const all = @import("qslib").search.all;
 const first = @import("qslib").search.first;
+const SearchResult = @import("qslib").SearchResult;
+const log = std.log;
 const std = @import("std");
