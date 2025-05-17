@@ -31,3 +31,9 @@ cachegrind:
     zig build
     valgrind --tool=cachegrind --cache-sim=yes --branch-sim=yes zig-out/bin/quicksearch-bench ../artifact.txt 'bibendum' all_simd
     kcachegrind cachegrind.out.*
+
+perf-cache:
+    rm ./perf.data*
+    zig build
+    perf record -e cache-misses,cache-references,branch-misses,cycles zig-out/bin/quicksearch-bench ../artifact.txt 'bibendum' all_simd
+    perf report
