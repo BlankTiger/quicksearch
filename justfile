@@ -9,17 +9,14 @@ run:
 
 bench:
     zig build -Doptimize=ReleaseFast
-    hyperfine --warmup 3 --runs 10 --prepare 'sync; echo 3 | sudo tee /proc/sys/vm/drop_caches' \
-        "rg 'bibendum' tests/artifact.txt" \
-        "zig-out/bin/quicksearch-bench tests/artifact.txt 'bibendum' all_linear" \
+    sudo -v
+    hyperfine --runs 10 --prepare 'sync; echo 3 | sudo tee /proc/sys/vm/drop_caches' \
+        "zig-out/bin/quicksearch-bench tests/artifact.txt 'bibendum' first_simd" \
         "zig-out/bin/quicksearch-bench tests/artifact.txt 'bibendum' all_simd" \
-        "zig-out/bin/quicksearch-bench tests/artifact.txt 'bibendum' first_linear" \
-        "zig-out/bin/quicksearch-bench tests/artifact.txt 'bibendum' first_simd"
+        "rg --threads 1 --vimgrep 'bibendum' tests/artifact.txt" \
 
-bench-debug:
-    zig build
-    hyperfine --warmup 3 --runs 10 --prepare 'sync; echo 3 | sudo tee /proc/sys/vm/drop_caches' \
-        "zig-out/bin/quicksearch-bench tests/artifact.txt 'habitasse' all_linear" \
-        "zig-out/bin/quicksearch-bench tests/artifact.txt 'habitasse' all_simd" \
-        "zig-out/bin/quicksearch-bench tests/artifact.txt 'habitasse' first_linear" \
-        "zig-out/bin/quicksearch-bench tests/artifact.txt 'habitasse' first_simd"
+flamegraph:
+    rm ./flamegraph.svg
+    rm ./perf.data*
+    perf record -g zig-out/bin/quicksearch-bench tests/artifact.txt 'bibendum' all_simd
+    perf script | inferno-collapse-perf | inferno-flamegraph > flamegraph.svg
