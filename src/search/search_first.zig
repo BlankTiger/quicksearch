@@ -146,6 +146,19 @@ const Tests = struct {
         try t.expectEqual(3, results[1].line);
         try t.expectEqual(1, results[1].col);
     }
+
+    test "search first function handles long queries well" {
+        const results = try search_fn(
+            t.allocator,
+            "some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
+            "thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
+        );
+        defer t.allocator.free(results);
+
+        try t.expectEqual(1, results.len);
+        try t.expectEqual(1, results[0].line);
+        try t.expectEqual(16, results[0].col);
+    }
 };
 
 const SearchResult = @import("SearchResult.zig");
