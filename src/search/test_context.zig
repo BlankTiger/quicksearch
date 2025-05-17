@@ -8,13 +8,11 @@ pub const FnPair = struct { FnType, []const u8 };
 
 pub const search_all_fns: []const FnPair = &[_]FnPair{
     .{ all.linear_search, "linear_search" },
-    .{ all.linear_std_search, "linear_std_search" },
     .{ all.simd_search, "simd_search" },
 };
 
 pub const search_first_fns: []const FnPair = &[_]FnPair{
     .{ first.linear_search, "linear_search" },
-    .{ first.linear_std_search, "linear_std_search" },
     .{ first.simd_search, "simd_search" },
 };
 
