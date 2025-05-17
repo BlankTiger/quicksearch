@@ -1,8 +1,3 @@
-pub const SearchResult = struct {
-    line: usize,
-    col: usize,
-};
-
 pub fn linear_search(alloc: mem.Allocator, haystack: []const u8, query: []const u8) anyerror![]SearchResult {
     if (query.len > haystack.len) return error.QueryLongerThanHaystack;
 
@@ -78,8 +73,8 @@ const Tests = struct {
     // This runs once for every test fn
     test "SETUP SEARCH FN" {
         defer idx_curr_fn += 1;
-        search_fn = t_context.search_fns[idx_curr_fn][0];
-        name = t_context.search_fns[idx_curr_fn][1];
+        search_fn = t_context.search_all_fns[idx_curr_fn][0];
+        name = t_context.search_all_fns[idx_curr_fn][1];
     }
 
     test "query must be longer than haystack" {
@@ -156,6 +151,8 @@ const Tests = struct {
     }
 };
 
+const SearchResult = @import("SearchResult.zig");
 const std = @import("std");
 const t = std.testing;
 const mem = std.mem;
+const simd = std.simd;

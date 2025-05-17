@@ -2,13 +2,14 @@ pub const FNType = *const fn (
     std.mem.Allocator,
     []const u8,
     []const u8,
-) anyerror![]lib.SearchResult;
+) anyerror![]SearchResult;
 
-pub const search_fns: [3]struct { FNType, []const u8 } = .{
-    .{ lib.linear_search, "linear_search" },
-    .{ lib.linear_std_search, "linear_std_search" },
-    .{ lib.simd_search, "simd_search" },
+pub const search_all_fns: [3]struct { FNType, []const u8 } = .{
+    .{ all.linear_search, "linear_search" },
+    .{ all.linear_std_search, "linear_std_search" },
+    .{ all.simd_search, "simd_search" },
 };
 
+const SearchResult = @import("SearchResult.zig");
 const std = @import("std");
-const lib = @import("lib.zig");
+const all = @import("search_all.zig");
