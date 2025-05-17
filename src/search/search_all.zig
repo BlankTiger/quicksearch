@@ -6,7 +6,7 @@ pub fn linear_search(
     if (query.len > haystack.len) return &[_]SearchResult{};
     if (query.len == 0) return &[_]SearchResult{};
 
-    var results = std.ArrayList(SearchResult).init(alloc);
+    var results = try std.ArrayList(SearchResult).initCapacity(alloc, 2048);
     errdefer results.deinit();
 
     var count_lines: usize = 1;
@@ -30,7 +30,7 @@ pub fn simd_search(
     if (query.len > haystack.len) return &[_]SearchResult{};
     if (query.len == 0) return &[_]SearchResult{};
 
-    var results = std.ArrayList(SearchResult).init(alloc);
+    var results = try std.ArrayList(SearchResult).initCapacity(alloc, 2048);
     errdefer results.deinit();
 
     const MAX_U8 = std.math.maxInt(u8);
