@@ -4,25 +4,19 @@ pub fn main() !void {
 
     const alloc = arena_state.allocator();
 
-    const search_all_tests, const search_first_tests = t: {
-        var list_all = std.ArrayList(std.builtin.TestFn).init(alloc);
-        var list_first = std.ArrayList(std.builtin.TestFn).init(alloc);
+    const search_tests = t: {
+        var list = std.ArrayList(std.builtin.TestFn).init(alloc);
         for (builtin.test_functions) |tf| {
-            if (std.mem.containsAtLeast(u8, tf.name, 1, "search_all")) {
-                try list_all.append(tf);
-            }
-            if (std.mem.containsAtLeast(u8, tf.name, 1, "search_first")) {
-                try list_first.append(tf);
+            if (std.mem.containsAtLeast(u8, tf.name, 1, "search")) {
+                try list.append(tf);
             }
         }
 
-        break :t .{ try list_all.toOwnedSlice(), try list_first.toOwnedSlice() };
+        break :t .{try list.toOwnedSlice()};
     };
 
-    std.debug.print("Running tests for search_all_fns using a custom runner\n", .{});
-    try handle_tests(search_all_tests, t_context.search_all_fns);
-    std.debug.print("Running tests for search_all_fns using a custom runner\n", .{});
-    try handle_tests(search_first_tests, t_context.search_first_fns);
+    std.debug.print("Running tests for search_fns using a custom runner\n", .{});
+    try handle_tests(search_tests, t_context.search_fns);
 }
 
 fn handle_tests(tests: []const std.builtin.TestFn, fns: []const t_context.FnPair) !void {
