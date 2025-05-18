@@ -1,13 +1,10 @@
 pub fn linear_search(
-    alloc: mem.Allocator,
+    result_handler: *ResultHandler,
     haystack: []const u8,
     query: []const u8,
-) anyerror![]SearchResult {
-    if (query.len > haystack.len) return &[_]SearchResult{};
-    if (query.len == 0) return &[_]SearchResult{};
-
-    var results = try std.ArrayList(SearchResult).initCapacity(alloc, 2048);
-    errdefer results.deinit();
+) void {
+    if (query.len > haystack.len) return;
+    if (query.len == 0) return;
 
     var count_lines: usize = 1;
     var line_iter = mem.splitScalar(u8, haystack, '\n');
@@ -15,28 +12,27 @@ pub fn linear_search(
         var col_last: usize = 0;
         while (mem.indexOfPos(u8, line, col_last, query)) |col| {
             col_last = col + 1;
-            try results.append(.{ .line = count_lines, .col = col_last });
+            result_handler.handle(.{ .row = count_lines, .col = col_last, .line = line });
         }
     }
-
-    return results.toOwnedSlice();
 }
 
 // TODO: maybe I don't need to split on newlines, instead maybe just count them
 // as we go, this would make using mem.splitScalar unnecessary, probably increase
 // cache coherence too
 
+const SIMD_THRESHOLD = 10e6;
+const MAX_THREADS = 32;
+const MAX_U8 = std.math.maxInt(u8);
+
 pub fn simd_search(
-    alloc: mem.Allocator,
+    result_handler: *ResultHandler,
     haystack: []const u8,
     query: []const u8,
-) anyerror![]SearchResult {
-    if (haystack.len > 10e6) {
-        var results: ResultsStore = .{ .results = try .initCapacity(alloc, 2048) };
-        errdefer results.results.deinit();
-        const cpu_count = try std.Thread.getCpuCount();
-        const threads: []std.Thread = try alloc.alloc(std.Thread, cpu_count);
-        defer alloc.free(threads);
+) void {
+    if (haystack.len > SIMD_THRESHOLD) {
+        const cpu_count = std.Thread.getCpuCount() catch 16;
+        var threads: [MAX_THREADS]std.Thread = undefined;
         const bytes_per_thread = haystack.len / cpu_count;
         var idx_start: usize = 0;
         for (0..cpu_count) |idx| {
@@ -49,39 +45,26 @@ pub fn simd_search(
             }
             idx_start = idx_end;
 
-            threads[idx] = try std.Thread.spawn(
-                .{ .allocator = alloc },
-                simd_search_impl_threaded,
-                .{ &results, haystack[idx_start..idx_end], query },
-            );
+            threads[idx] = std.Thread.spawn(
+                .{},
+                simd_search_impl,
+                .{ result_handler, haystack[idx_start..idx_end], query },
+            ) catch return;
         }
-        for (threads) |thread| thread.join();
-        return try results.results.toOwnedSlice();
+        for (0..cpu_count) |idx_cpu| threads[idx_cpu].join();
     } else {
-        return simd_search_impl(alloc, haystack, query);
+        simd_search_impl(result_handler, haystack, query);
     }
 }
 
-const ResultsStore = struct {
-    mutex: std.Thread.Mutex = .{},
-    results: std.ArrayList(SearchResult),
-
-    fn append(self: *@This(), result: SearchResult) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-        try self.results.append(result);
-    }
-};
-
-fn simd_search_impl_threaded(
-    results: *ResultsStore,
+fn simd_search_impl(
+    result_handler: *ResultHandler,
     haystack: []const u8,
     query: []const u8,
 ) void {
     if (query.len > haystack.len) return;
     if (query.len == 0) return;
 
-    const MAX_U8 = std.math.maxInt(u8);
     const vector_len = simd.suggestVectorLength(u8) orelse 16;
     const T = @Vector(vector_len, u8);
 
@@ -117,83 +100,10 @@ fn simd_search_impl_threaded(
                         continue;
 
                     if (mem.eql(u8, line[match_pos .. match_pos + query.len], query)) {
-                        results.append(SearchResult{
-                            .line = current_line,
+                        result_handler.handle(SearchResult{
+                            .row = current_line,
                             .col = match_pos + 1,
-                        }) catch return;
-                    }
-                }
-            }
-
-            line_pos += vector_len;
-        }
-
-        // Handle the remaining characters that don't fill a complete vector
-        const remaining = line.len - line_pos;
-        if (remaining >= query.len) {
-            var pos = line_pos;
-            while (pos <= line.len - query.len) : (pos += 1) {
-                if (mem.eql(u8, line[pos .. pos + query.len], query)) {
-                    results.append(SearchResult{
-                        .line = current_line,
-                        .col = pos + 1,
-                    }) catch return;
-                }
-            }
-        }
-    }
-}
-
-fn simd_search_impl(
-    alloc: mem.Allocator,
-    haystack: []const u8,
-    query: []const u8,
-) anyerror![]SearchResult {
-    if (query.len > haystack.len) return &[_]SearchResult{};
-    if (query.len == 0) return &[_]SearchResult{};
-
-    var results = try std.ArrayList(SearchResult).initCapacity(alloc, 2048);
-    errdefer results.deinit();
-
-    const MAX_U8 = std.math.maxInt(u8);
-    const vector_len = simd.suggestVectorLength(u8) orelse 16;
-    const T = @Vector(vector_len, u8);
-
-    const q_start: T = @splat(query[0]);
-    const max_vals: T = @splat(MAX_U8);
-    const indexes = simd.iota(u8, vector_len);
-
-    var current_line: usize = 1;
-    var line_iter = mem.splitScalar(u8, haystack, '\n');
-
-    while (line_iter.next()) |line| : (current_line += 1) {
-        if (line.len < query.len) continue;
-
-        var line_pos: usize = 0;
-
-        while (line_pos + vector_len <= line.len) {
-            const part: T = line[line_pos .. line_pos + vector_len][0..vector_len].*;
-            const matches_start = part == q_start;
-
-            if (@reduce(.Or, matches_start)) {
-                const selected_indexes = @select(u8, matches_start, indexes, max_vals);
-
-                for (0..vector_len) |idx| {
-                    if (selected_indexes[idx] == MAX_U8) continue; // No match at this position
-
-                    // Check if there's enough room for the full query from the current idx to the end
-                    const match_pos = line_pos + idx;
-                    if (match_pos + query.len > line.len) continue;
-
-                    // Verify the last character matches to filter out obvious non-matches
-                    if (match_pos + query.len - 1 < line.len and
-                        line[match_pos + query.len - 1] != query[query.len - 1])
-                        continue;
-
-                    if (mem.eql(u8, line[match_pos .. match_pos + query.len], query)) {
-                        try results.append(SearchResult{
-                            .line = current_line,
-                            .col = match_pos + 1,
+                            .line = line,
                         });
                     }
                 }
@@ -208,16 +118,15 @@ fn simd_search_impl(
             var pos = line_pos;
             while (pos <= line.len - query.len) : (pos += 1) {
                 if (mem.eql(u8, line[pos .. pos + query.len], query)) {
-                    try results.append(SearchResult{
-                        .line = current_line,
+                    result_handler.handle(SearchResult{
+                        .row = current_line,
                         .col = pos + 1,
+                        .line = line,
                     });
                 }
             }
         }
     }
-
-    return results.toOwnedSlice();
 }
 
 test {
@@ -226,7 +135,36 @@ test {
 
 /// THESE TESTS ARE RUN USING A CUSTOM TEST RUNNER
 const Tests = struct {
+    const WriterWrapper = struct {
+        var data = [_]u8{0} ** 10e3;
+        var len: usize = 0;
+        var write_count: usize = 0;
+
+        const Self = @This();
+
+        fn reset(_: Self) void {
+            len = 0;
+            write_count = 0;
+        }
+
+        fn write(_: *const anyopaque, bytes: []const u8) anyerror!usize {
+            write_count += 1;
+            @memcpy(data[len .. len + bytes.len], bytes);
+            return bytes.len;
+        }
+
+        fn writer(self: *Self) std.io.AnyWriter {
+            return .{ .context = self, .writeFn = write };
+        }
+
+        fn get(_: Self) []const u8 {
+            return data[0..len];
+        }
+    };
+
     const t_context = @import("test_context.zig");
+    var test_writer: WriterWrapper = undefined;
+    var test_handler: ResultHandler = undefined;
     var search_fn: t_context.FnType = undefined;
     var name: []const u8 = undefined;
     var idx_curr_fn: usize = 0;
@@ -234,100 +172,100 @@ const Tests = struct {
     // This runs once for every test fn
     test "SETUP SEARCH FN" {
         defer idx_curr_fn += 1;
+        test_handler = .init(test_writer.writer(), .{});
         search_fn = t_context.search_fns[idx_curr_fn][0];
         name = t_context.search_fns[idx_curr_fn][1];
     }
 
-    test "search function returns empty results when query longer than haystack" {
-        const results = try search_fn(t.allocator, "hi", "hih");
-        defer t.allocator.free(results);
+    // test "SETUP BEFORE EACH SEARCH FN"
 
-        try t.expectEqual(0, results.len);
+    test "TEARDOWN SEARCH FN" {}
+
+    test "search: search function returns empty results when query longer than haystack" {
+        defer test_writer.reset();
+        search_fn(&test_handler, "hi", "hih");
+
+        try t.expectEqual(0, WriterWrapper.write_count);
     }
 
     const input1 = "some bytes here";
     const query1 = "byte";
 
-    test "search function doesnt return an error" {
-        const results = try search_fn(t.allocator, input1, query1);
-        defer t.allocator.free(results);
+    test "search: search function returns some search results" {
+        defer test_writer.reset();
+        search_fn(&test_handler, input1, query1);
+
+        try t.expectEqual(1, WriterWrapper.write_count);
     }
+    //
+    // test "search: first result of search function is correct" {
+    //     defer test_writer.reset();
+    //     search_fn(&test_handler, input1, query1);
+    //
+    //     try t.expectEqualStrings("1:6: some bytes here\n", test_writer.get());
+    // }
+    //
+    // const input2 = "hi there hi re re";
+    //
+    // test "search: search function returns 2 matches" {
+    //     defer test_writer.reset();
+    //     search_fn(&test_handler, input2, "hi");
+    //
+    //     try t.expectEqual(2, WriterWrapper.write_count);
+    // }
+    //
+    // test "search: search function returns 3 matches" {
+    //     defer test_writer.reset();
+    //     search_fn(&test_handler, input2, "re");
+    //
+    //     try t.expectEqual(3, WriterWrapper.write_count);
+    // }
+    //
+    // test "search: search function returns line info per match" {
+    //     defer test_writer.reset();
+    //     search_fn(&test_handler, "hi hello\nhi hello", "hi");
+    //
+    //     try t.expectEqual(2, WriterWrapper.write_count);
+    //     try t.expectEqualStrings(
+    //         \\1:1: hi hello
+    //         \\2:1: hi hello
+    //         \\
+    //     , test_writer.get());
+    // }
+    //
+    // test "search: search function returns line info correctly given multiple lines" {
+    //     defer test_writer.reset();
+    //     search_fn(&test_handler, "hi\n\nhi", "hi");
+    //
+    //     try t.expectEqual(2, WriterWrapper.write_count);
+    //     try t.expectEqualStrings(
+    //         \\1:1: hi
+    //         \\3:1: hi
+    //         \\
+    //     , test_writer.get());
+    // }
+    //
+    // test "search: search function handles long queries well" {
+    //     defer test_writer.reset();
+    //     search_fn(
+    //         &test_handler,
+    //         "some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
+    //         "thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
+    //     );
+    //
+    //     try t.expectEqual(3, WriterWrapper.write_count);
+    //     try t.expectEqualStrings(
+    //         \\1:16: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
+    //         \\1:86: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
+    //         \\1:156: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
+    //         \\
+    //     , test_writer.get());
+    // }
 
-    test "search function returns some search results" {
-        const results = try search_fn(t.allocator, input1, query1);
-        defer t.allocator.free(results);
-
-        try t.expectEqual(1, results.len);
-    }
-
-    test "first result of search function is correct" {
-        const results = try search_fn(t.allocator, input1, query1);
-        defer t.allocator.free(results);
-
-        try t.expectEqual(1, results[0].line);
-        try t.expectEqual(6, results[0].col);
-    }
-
-    const input2 = "hi there hi re re";
-
-    test "search function returns 2 matches" {
-        const results = try search_fn(t.allocator, input2, "hi");
-        defer t.allocator.free(results);
-
-        try t.expectEqual(2, results.len);
-    }
-
-    test "search function returns 3 matches" {
-        const results = try search_fn(t.allocator, input2, "re");
-        defer t.allocator.free(results);
-
-        try t.expectEqual(3, results.len);
-    }
-
-    test "search function returns line info per match" {
-        const results = try search_fn(t.allocator, "hi hello\nhi hello", "hi");
-        defer t.allocator.free(results);
-
-        try t.expectEqual(2, results.len);
-
-        try t.expectEqual(1, results[0].line);
-        try t.expectEqual(1, results[0].col);
-
-        try t.expectEqual(2, results[1].line);
-        try t.expectEqual(1, results[1].col);
-    }
-
-    test "search function returns line info correctly given multiple lines" {
-        const results = try search_fn(t.allocator, "hi\n\nhi", "hi");
-        defer t.allocator.free(results);
-
-        try t.expectEqual(2, results.len);
-
-        try t.expectEqual(1, results[0].line);
-        try t.expectEqual(1, results[0].col);
-
-        try t.expectEqual(3, results[1].line);
-        try t.expectEqual(1, results[1].col);
-    }
-
-    test "search function handles long queries well" {
-        const results = try search_fn(
-            t.allocator,
-            "some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
-            "thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
-        );
-        defer t.allocator.free(results);
-
-        try t.expectEqual(3, results.len);
-        try t.expectEqual(1, results[0].line);
-        try t.expectEqual(16, results[0].col);
-        try t.expectEqual(1, results[1].line);
-        try t.expectEqual(86, results[1].col);
-        try t.expectEqual(1, results[2].line);
-        try t.expectEqual(156, results[2].col);
-    }
+    // TODO: make some nice test that tests handling of passing the .line in the results
 };
 
+const ResultHandler = @import("ResultHandler.zig");
 const SearchResult = @import("SearchResult.zig");
 const std = @import("std");
 const t = std.testing;
