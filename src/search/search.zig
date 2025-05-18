@@ -148,8 +148,8 @@ const Tests = struct {
         }
 
         fn write(_: *const anyopaque, bytes: []const u8) anyerror!usize {
-            write_count += 1;
             @memcpy(data[len .. len + bytes.len], bytes);
+            len = len + bytes.len;
             return bytes.len;
         }
 
@@ -172,7 +172,11 @@ const Tests = struct {
     // This runs once for every test fn
     test "SETUP SEARCH FN" {
         defer idx_curr_fn += 1;
-        test_handler = .init(test_writer.writer(), .{});
+        const writer = test_writer.writer();
+        test_handler = .init(writer, .{
+            .handling_type = .testing,
+            .__testing_handle_count = &WriterWrapper.write_count,
+        });
         search_fn = t_context.search_fns[idx_curr_fn][0];
         name = t_context.search_fns[idx_curr_fn][1];
     }
@@ -194,73 +198,72 @@ const Tests = struct {
     test "search: search function returns some search results" {
         defer test_writer.reset();
         search_fn(&test_handler, input1, query1);
-
         try t.expectEqual(1, WriterWrapper.write_count);
     }
-    //
-    // test "search: first result of search function is correct" {
-    //     defer test_writer.reset();
-    //     search_fn(&test_handler, input1, query1);
-    //
-    //     try t.expectEqualStrings("1:6: some bytes here\n", test_writer.get());
-    // }
-    //
-    // const input2 = "hi there hi re re";
-    //
-    // test "search: search function returns 2 matches" {
-    //     defer test_writer.reset();
-    //     search_fn(&test_handler, input2, "hi");
-    //
-    //     try t.expectEqual(2, WriterWrapper.write_count);
-    // }
-    //
-    // test "search: search function returns 3 matches" {
-    //     defer test_writer.reset();
-    //     search_fn(&test_handler, input2, "re");
-    //
-    //     try t.expectEqual(3, WriterWrapper.write_count);
-    // }
-    //
-    // test "search: search function returns line info per match" {
-    //     defer test_writer.reset();
-    //     search_fn(&test_handler, "hi hello\nhi hello", "hi");
-    //
-    //     try t.expectEqual(2, WriterWrapper.write_count);
-    //     try t.expectEqualStrings(
-    //         \\1:1: hi hello
-    //         \\2:1: hi hello
-    //         \\
-    //     , test_writer.get());
-    // }
-    //
-    // test "search: search function returns line info correctly given multiple lines" {
-    //     defer test_writer.reset();
-    //     search_fn(&test_handler, "hi\n\nhi", "hi");
-    //
-    //     try t.expectEqual(2, WriterWrapper.write_count);
-    //     try t.expectEqualStrings(
-    //         \\1:1: hi
-    //         \\3:1: hi
-    //         \\
-    //     , test_writer.get());
-    // }
-    //
-    // test "search: search function handles long queries well" {
-    //     defer test_writer.reset();
-    //     search_fn(
-    //         &test_handler,
-    //         "some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
-    //         "thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
-    //     );
-    //
-    //     try t.expectEqual(3, WriterWrapper.write_count);
-    //     try t.expectEqualStrings(
-    //         \\1:16: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
-    //         \\1:86: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
-    //         \\1:156: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
-    //         \\
-    //     , test_writer.get());
-    // }
+
+    test "search: first result of search function is correct" {
+        defer test_writer.reset();
+        search_fn(&test_handler, input1, query1);
+
+        try t.expectEqualStrings("1:6: some bytes here\n", test_writer.get());
+    }
+
+    const input2 = "hi there hi re re";
+
+    test "search: search function returns 2 matches" {
+        defer test_writer.reset();
+        search_fn(&test_handler, input2, "hi");
+
+        try t.expectEqual(2, WriterWrapper.write_count);
+    }
+
+    test "search: search function returns 3 matches" {
+        defer test_writer.reset();
+        search_fn(&test_handler, input2, "re");
+
+        try t.expectEqual(3, WriterWrapper.write_count);
+    }
+
+    test "search: search function returns line info per match" {
+        defer test_writer.reset();
+        search_fn(&test_handler, "hi hello\nhi hello", "hi");
+
+        try t.expectEqual(2, WriterWrapper.write_count);
+        try t.expectEqualStrings(
+            \\1:1: hi hello
+            \\2:1: hi hello
+            \\
+        , test_writer.get());
+    }
+
+    test "search: search function returns line info correctly given multiple lines" {
+        defer test_writer.reset();
+        search_fn(&test_handler, "hi\n\nhi", "hi");
+
+        try t.expectEqual(2, WriterWrapper.write_count);
+        try t.expectEqualStrings(
+            \\1:1: hi
+            \\3:1: hi
+            \\
+        , test_writer.get());
+    }
+
+    test "search: search function handles long queries well" {
+        defer test_writer.reset();
+        search_fn(
+            &test_handler,
+            "some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
+            "thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
+        );
+
+        try t.expectEqual(3, WriterWrapper.write_count);
+        try t.expectEqualStrings(
+            \\1:16: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
+            \\1:86: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
+            \\1:156: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
+            \\
+        , test_writer.get());
+    }
 
     // TODO: make some nice test that tests handling of passing the .line in the results
 };

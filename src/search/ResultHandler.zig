@@ -8,6 +8,7 @@ const HandlingFn = *const fn (*Handler, SearchResult) void;
 
 pub const Options = struct {
     handling_type: HandlingType = .default,
+    __testing_handle_count: ?*usize = null,
 };
 
 pub const HandlingType = enum {
@@ -41,9 +42,10 @@ fn handling_fn_vimgrep(self: *Handler, r: SearchResult) void {
 }
 
 fn handling_fn_testing(self: *Handler, r: SearchResult) void {
-    const to_write = std.fmt.allocPrint(std.testing.allocator, "{d}:{d}: {s}\n", .{ r.row, r.col, r.line }) catch return;
-    defer std.testing.allocator.free(to_write);
-    self.writer.writeAll(to_write) catch return;
+    if (self.opts.__testing_handle_count) |ptr| {
+        ptr.* += 1;
+    }
+    self.writer.print("{d}:{d}: {s}\n", .{ r.row, r.col, r.line }) catch return;
 }
 
 pub fn handle(self: *Handler, r: SearchResult) void {
