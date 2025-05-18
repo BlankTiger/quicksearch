@@ -19,20 +19,12 @@ pub fn main() !void {
     defer alloc.free(results);
 
     switch (method) {
-        .all_linear => {
-            results = try all.linear_search(alloc, data, query);
+        .linear => {
+            results = try search.linear_search(alloc, data, query);
         },
 
-        .all_simd => {
-            results = try all.simd_search(alloc, data, query);
-        },
-
-        .first_linear => {
-            results = try first.linear_search(alloc, data, query);
-        },
-
-        .first_simd => {
-            results = try first.simd_search(alloc, data, query);
+        .simd => {
+            results = try search.simd_search(alloc, data, query);
         },
     }
 
@@ -40,11 +32,8 @@ pub fn main() !void {
 }
 
 const Method = enum {
-    all_linear,
-    all_simd,
-
-    first_linear,
-    first_simd,
+    linear,
+    simd,
 };
 
 fn get_method(txt: []const u8) Method {
@@ -57,17 +46,11 @@ fn get_method(txt: []const u8) Method {
         }
     }
 
-    std.debug.panic(
-        "You didn't provide a valid function for testing, exiting\nProvided: '{s}'\nAvailable: {s}\n",
-        .{
-            txt,
-            fs: {
-                comptime var fs: [m_fields.len][]const u8 = undefined;
-                inline for (0..m_fields.len) |idx| fs[idx] = m_fields[idx].name;
-                break :fs fs;
-            }
-        }
-    );
+    std.debug.panic("You didn't provide a valid function for testing, exiting\nProvided: '{s}'\nAvailable: {s}\n", .{ txt, fs: {
+        comptime var fs: [m_fields.len][]const u8 = undefined;
+        inline for (0..m_fields.len) |idx| fs[idx] = m_fields[idx].name;
+        break :fs fs;
+    } });
 }
 
 fn get_data(path: []const u8) ![]align(std.heap.page_size_min) const u8 {
@@ -79,8 +62,7 @@ fn get_data(path: []const u8) ![]align(std.heap.page_size_min) const u8 {
     return mem;
 }
 
-const all = @import("qslib").search.all;
-const first = @import("qslib").search.first;
+const search = @import("qslib").search.search;
 const SearchResult = @import("qslib").SearchResult;
 const log = std.log;
 const std = @import("std");
