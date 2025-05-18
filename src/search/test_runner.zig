@@ -12,7 +12,7 @@ pub fn main() !void {
             }
         }
 
-        break :t .{try list.toOwnedSlice()};
+        break :t try list.toOwnedSlice();
     };
 
     std.debug.print("Running tests for search_fns using a custom runner\n", .{});

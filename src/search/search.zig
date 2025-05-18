@@ -38,18 +38,17 @@ pub fn simd_search(
         const threads: []std.Thread = try alloc.alloc(std.Thread, cpu_count);
         defer alloc.free(threads);
         const bytes_per_thread = haystack.len / cpu_count;
+        var idx_start: usize = 0;
         for (0..cpu_count) |idx| {
-            // BUG: this has a nasty problem of the haystack not being split on line boundaries
-            // this means that we might miss some matches, the only idea to fix this that comes
-            // to mind is splitting on a newline, but I'm not sure how to do that efficiently
-            //
-            // okay, maybe I have an idea, maybe we can search for the nearest newline from the idx end
-            // and use that
-            const idx_start = idx * bytes_per_thread;
             var idx_end = (idx + 1) * bytes_per_thread;
             if (idx == cpu_count - 1) {
                 idx_end = haystack.len - 1;
+            } else {
+                // make sure we always have chunks with full lines
+                while (haystack[idx_end] != '\n') idx_end += 1;
             }
+            idx_start = idx_end;
+
             threads[idx] = try std.Thread.spawn(
                 .{ .allocator = alloc },
                 simd_search_impl_threaded,
@@ -58,7 +57,6 @@ pub fn simd_search(
         }
         for (threads) |thread| thread.join();
         return try results.results.toOwnedSlice();
-        // return &.{};
     } else {
         return simd_search_impl(alloc, haystack, query);
     }
@@ -236,8 +234,8 @@ const Tests = struct {
     // This runs once for every test fn
     test "SETUP SEARCH FN" {
         defer idx_curr_fn += 1;
-        search_fn = t_context.search_all_fns[idx_curr_fn][0];
-        name = t_context.search_all_fns[idx_curr_fn][1];
+        search_fn = t_context.search_fns[idx_curr_fn][0];
+        name = t_context.search_fns[idx_curr_fn][1];
     }
 
     test "search function returns empty results when query longer than haystack" {
