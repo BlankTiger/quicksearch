@@ -15,8 +15,8 @@ bench:
         "rg --threads 1 --vimgrep 'bibendum' ../artifact.txt" \
 
 flamegraph:
-    rm ./flamegraph.svg
-    rm ./perf.data*
+    rm ./flamegraph.svg || true
+    rm ./perf.data* || true
     zig build
     perf record -g zig-out/bin/quicksearch-bench ../artifact.txt 'bibendum' simd
     perf script | inferno-collapse-perf | inferno-flamegraph > flamegraph.svg
@@ -32,7 +32,7 @@ cachegrind:
     kcachegrind cachegrind.out.*
 
 perf-cache:
-    rm ./perf.data*
+    rm ./perf.data* || true
     zig build
     perf record -e cache-misses,cache-references,branch-misses,cycles zig-out/bin/quicksearch-bench ../artifact.txt 'bibendum' simd
     perf report
