@@ -43,13 +43,16 @@ pub fn simd_search(
                 // make sure we always have chunks with full lines
                 while (haystack[idx_end] != '\n') idx_end += 1;
             }
-            idx_start = idx_end;
+            defer idx_start = idx_end;
 
             threads[idx] = std.Thread.spawn(
                 .{},
                 simd_search_impl,
                 .{ result_handler, haystack[idx_start..idx_end], query },
-            ) catch return;
+            ) catch |e| {
+                std.debug.print("got an error while trying to spawn a thread: {}\n", .{e});
+                return;
+            };
         }
         for (0..cpu_count) |idx_cpu| threads[idx_cpu].join();
     } else {

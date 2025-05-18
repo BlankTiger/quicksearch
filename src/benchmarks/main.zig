@@ -15,20 +15,17 @@ pub fn main() !void {
     const data = try get_data(path_to_data);
     defer std.posix.munmap(data);
 
-    var results: []const SearchResult = undefined;
-    defer alloc.free(results);
+    var handler: ResultHandler = .init(std.io.getStdOut().writer().any(), .{});
 
     switch (method) {
         .linear => {
-            results = try search.linear_search(alloc, data, query);
+            search.linear_search(&handler, data, query);
         },
 
         .simd => {
-            results = try search.simd_search(alloc, data, query);
+            search.simd_search(&handler, data, query);
         },
     }
-
-    log.info("Found: {d}", .{results.len});
 }
 
 const Method = enum {
@@ -64,5 +61,6 @@ fn get_data(path: []const u8) ![]align(std.heap.page_size_min) const u8 {
 
 const search = @import("qslib").search.search;
 const SearchResult = @import("qslib").SearchResult;
+const ResultHandler = @import("qslib").ResultHandler;
 const log = std.log;
 const std = @import("std");

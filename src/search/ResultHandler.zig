@@ -33,7 +33,6 @@ pub fn init(writer: std.io.AnyWriter, comptime opts: Options) Handler {
 }
 
 fn handling_fn_default(self: *Handler, r: SearchResult) void {
-    std.debug.print("{}\n", .{r});
     self.writer.print("{d}:{d}: {s}\n", .{ r.row, r.col, r.line }) catch return;
 }
 
