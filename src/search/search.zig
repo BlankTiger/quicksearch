@@ -49,107 +49,112 @@ pub fn simd_search_zigzag(
     haystack: []const u8,
     query: []const u8,
 ) anyerror![]SearchResult {
-    if (haystack.len > 10e6) {
-        var results: ResultsStore = .{ .results = try .initCapacity(alloc, 2048) };
-        errdefer results.results.deinit();
-        const cpu_count = try std.Thread.getCpuCount();
-        const threads: []std.Thread = try alloc.alloc(std.Thread, cpu_count);
-        defer alloc.free(threads);
-        const bytes_per_thread = haystack.len / cpu_count;
-        for (0..cpu_count) |idx| {
-            // BUG: this has a nasty problem of the haystack not being split on line boundaries
-            // this means that we might miss some matches, the only idea to fix this that comes
-            // to mind is splitting on a newline, but I'm not sure how to do that efficiently
-            //
-            // okay, maybe I have an idea, maybe we can search for the nearest newline from the idx end
-            // and use that
-            const idx_start = idx * bytes_per_thread;
-            var idx_end = (idx + 1) * bytes_per_thread;
-            if (idx == cpu_count - 1) {
-                idx_end = haystack.len - 1;
-            }
-            threads[idx] = try std.Thread.spawn(
-                .{ .allocator = alloc },
-                simd_search_impl_threaded_zigzag,
-                .{ &results, haystack[idx_start..idx_end], query },
-            );
-        }
-        for (threads) |thread| thread.join();
-        return try results.results.toOwnedSlice();
-        // return &.{};
-    } else {
-        return simd_search_impl(alloc, haystack, query);
+    if (query.len == 0) return &.{};
+
+    var results: ResultsStore = .{ .results = try .initCapacity(alloc, 2048) };
+    errdefer results.results.deinit();
+
+    // Get SIMD vector length
+    const vector_len = simd.suggestVectorLength(u8) orelse 16;
+
+    // Create as many threads as SIMD vector length
+    const thread_count = vector_len;
+    const threads: []std.Thread = try alloc.alloc(std.Thread, thread_count);
+    defer alloc.free(threads);
+
+    // Spawn a thread for each offset in the SIMD vector
+    for (0..thread_count) |thread_idx| {
+        threads[thread_idx] = try std.Thread.spawn(
+            .{ .allocator = alloc },
+            simd_search_thread_zigzag,
+            .{ &results, haystack, query, thread_idx, vector_len },
+        );
     }
+
+    for (threads) |thread| thread.join();
+    return try results.results.toOwnedSlice();
 }
 
-pub fn simd_search_impl_threaded_zigzag(
+fn simd_search_thread_zigzag(
     results: *ResultsStore,
     haystack: []const u8,
     query: []const u8,
+    thread_idx: usize,
+    comptime vector_len: usize,
 ) void {
-    if (query.len > haystack.len) return;
-    if (query.len == 0) return;
+    if (haystack.len == 0 or query.len == 0) return;
 
     const MAX_U8 = std.math.maxInt(u8);
-    const vector_len = simd.suggestVectorLength(u8) orelse 16;
     const T = @Vector(vector_len, u8);
 
-    const q_start: T = @splat(query[0]);
-    const max_vals: T = @splat(MAX_U8);
-    const indexes = simd.iota(u8, vector_len);
+    var pattern_vec: T = @splat(MAX_U8);
+    const query_fits = query.len + thread_idx <= vector_len;
+    const pattern_len = if (query_fits) query.len else vector_len - thread_idx;
 
-    var current_line: usize = 1;
-    var line_iter = mem.splitScalar(u8, haystack, '\n');
+    // Fill the pattern according to thread index (zigzag pattern)
+    for (0..pattern_len) |i| {
+        pattern_vec[thread_idx + i] = query[i];
+    }
 
-    while (line_iter.next()) |line| : (current_line += 1) {
-        if (line.len < query.len) continue;
+    var pos: usize = thread_idx;
+    var line_num: usize = 1;
+    var current_line_start: usize = 0;
 
-        var line_pos: usize = 0;
+    for (0..pos) |i| {
+        if (haystack[i] == '\n') {
+            line_num += 1;
+            current_line_start = i + 1;
+        }
+    }
 
-        while (line_pos + vector_len <= line.len) {
-            const part: T = line[line_pos .. line_pos + vector_len][0..vector_len].*;
-            const matches_start = part == q_start;
+    while (pos + vector_len <= haystack.len) {
+        const haystack_chunk: T = haystack[pos .. pos + vector_len][0..vector_len].*;
+        const char_matches = simd.countTrues(haystack_chunk == pattern_vec);
 
-            if (@reduce(.Or, matches_start)) {
-                const selected_indexes = @select(u8, matches_start, indexes, max_vals);
+        if (char_matches == pattern_len) {
+            if (query_fits) {
+                const column = pos - current_line_start + 1;
 
-                for (0..vector_len) |idx| {
-                    if (selected_indexes[idx] == MAX_U8) continue; // No match at this position
+                results.append(SearchResult{
+                    .line = line_num,
+                    .col = column,
+                }) catch return;
+            } else {
+                const remaining_start = pos + vector_len;
+                const remaining_query_start = pattern_len;
+                const remaining_query_len = query.len - remaining_query_start;
 
-                    // Check if there's enough room for the full query from the current idx to the end
-                    const match_pos = line_pos + idx;
-                    if (match_pos + query.len > line.len) continue;
+                // TODO: THIS CHECK SHOULD BE DONE UPFRONT, IF WE CANNOT POSSIBLY
+                // MATCH THE QUERY BECAUSE THE HAYSTACK ENDS, THEN WE DONT MATCH
+                // AT ALL
+                if (remaining_start + remaining_query_len <= haystack.len) {
+                    // Check if rest of query matches
+                    const remaining_match = mem.eql(
+                        u8,
+                        haystack[remaining_start .. remaining_start + remaining_query_len],
+                        query[remaining_query_start..],
+                    );
 
-                    // Verify the last character matches to filter out obvious non-matches
-                    if (match_pos + query.len - 1 < line.len and
-                        line[match_pos + query.len - 1] != query[query.len - 1])
-                        continue;
+                    if (remaining_match) {
+                        const column = pos - current_line_start + 1;
 
-                    if (mem.eql(u8, line[match_pos .. match_pos + query.len], query)) {
                         results.append(SearchResult{
-                            .line = current_line,
-                            .col = match_pos + 1,
+                            .line = line_num,
+                            .col = column,
                         }) catch return;
                     }
                 }
             }
-
-            line_pos += vector_len;
         }
 
-        // Handle the remaining characters that don't fill a complete vector
-        const remaining = line.len - line_pos;
-        if (remaining >= query.len) {
-            var pos = line_pos;
-            while (pos <= line.len - query.len) : (pos += 1) {
-                if (mem.eql(u8, line[pos .. pos + query.len], query)) {
-                    results.append(SearchResult{
-                        .line = current_line,
-                        .col = pos + 1,
-                    }) catch return;
-                }
+        for (pos..pos + vector_len) |i| {
+            if (i < haystack.len and haystack[i] == '\n') {
+                line_num += 1;
+                current_line_start = i + 1;
             }
         }
+
+        pos += vector_len;
     }
 }
 
@@ -202,7 +207,7 @@ const ResultsStore = struct {
     }
 };
 
-pub fn simd_search_impl_threaded(
+fn simd_search_impl_threaded(
     results: *ResultsStore,
     haystack: []const u8,
     query: []const u8,
@@ -273,7 +278,7 @@ pub fn simd_search_impl_threaded(
     }
 }
 
-pub fn simd_search_impl(
+fn simd_search_impl(
     alloc: mem.Allocator,
     haystack: []const u8,
     query: []const u8,
