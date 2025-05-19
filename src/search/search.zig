@@ -2,7 +2,7 @@ const THREADED_THRESHOLD = 10e6;
 const DEFAULT_THREADS = 16;
 const MAX_THREADS = 32;
 const MAX_U8 = std.math.maxInt(u8);
-const LOCAL_CAPACITY = 4096;
+const LOCAL_CAPACITY = 8192;
 
 pub fn linear_search(
     result_handler: *ResultHandler,
