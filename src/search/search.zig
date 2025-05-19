@@ -70,13 +70,7 @@ pub fn linear_search_impl(
         }
     }
 
-    if (local.items.len > 0) {
-        result_handler.write(local.items) catch {
-            std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
-            return;
-        };
-        local.clearRetainingCapacity();
-    }
+    write_remaining(result_handler, &local);
 }
 
 // TODO: maybe I don't need to split on newlines, instead maybe just count them
@@ -203,13 +197,7 @@ fn simd_search_impl(
         }
     }
 
-    if (local.items.len > 0) {
-        result_handler.write(local.items) catch {
-            std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
-            return;
-        };
-        local.clearRetainingCapacity();
-    }
+    write_remaining(result_handler, &local);
 }
 
 inline fn handle_result(handler: *ResultHandler, local: *std.ArrayList(u8), writer: std.io.AnyWriter, result: SearchResult) !void {
@@ -222,6 +210,16 @@ inline fn handle_result(handler: *ResultHandler, local: *std.ArrayList(u8), writ
         handler.write(local.items) catch |e| {
             std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
             return e;
+        };
+        local.clearRetainingCapacity();
+    }
+}
+
+inline fn write_remaining(handler: *ResultHandler, local: *std.ArrayList(u8)) void {
+    if (local.items.len > 0) {
+        handler.write(local.items) catch {
+            std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
+            return;
         };
         local.clearRetainingCapacity();
     }
