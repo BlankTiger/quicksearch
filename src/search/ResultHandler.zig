@@ -1,20 +1,20 @@
 writer: std.io.AnyWriter,
 opts: Options = .{},
-handling_fn: HandlingFn,
+format_fn: FormattingFn,
 mutex: std.Thread.Mutex = .{},
 
 const Handler = @This();
 
-const HandlingFn = *const fn (*Handler, SearchResult) void;
+const FormattingFn = *const fn (*Handler, std.io.AnyWriter, SearchResult) anyerror!void;
 
 pub const Options = if (!builtin.is_test) struct {
-    handling_type: HandlingType = .default,
+    handling_type: FormatType = .default,
 } else struct {
-    handling_type: HandlingType = .default,
-    testing_handle_count: ?*usize = null,
+    handling_type: FormatType = .default,
+    testing_format_count: ?*usize = null,
 };
 
-pub const HandlingType = enum {
+pub const FormatType = enum {
     /// whatever I thought was nice at the time
     default,
 
@@ -27,49 +27,37 @@ pub const HandlingType = enum {
 };
 
 pub fn init(writer: std.io.AnyWriter, comptime opts: Options) Handler {
-    const hfn = switch (opts.handling_type) {
-        .default => handling_fn_default,
-        .vimgrep => handling_fn_vimgrep,
-        .testing => handling_fn_testing,
+    const ffn = switch (opts.handling_type) {
+        .default => format_fn_default,
+        .vimgrep => format_fn_vimgrep,
+        .testing => format_fn_testing,
     };
-    return .{ .writer = writer, .opts = opts, .handling_fn = hfn };
+    return .{ .writer = writer, .opts = opts, .format_fn = ffn };
 }
 
-fn handling_fn_default(self: *Handler, r: SearchResult) void {
-    self.writer.print("{d}:{d}: {s}\n", .{ r.row, r.col, r.line }) catch return;
-}
-
-fn handling_fn_vimgrep(self: *Handler, r: SearchResult) void {
-    self.writer.print("TODO IMPLEMENT THIS, BUT: {}\n", .{r}) catch return;
-}
-
-fn handling_fn_testing(self: *Handler, r: SearchResult) void {
-    if (self.opts.testing_handle_count) |ptr| {
-        ptr.* += 1;
-    }
-    self.writer.print("{d}:{d}: {s}\n", .{ r.row, r.col, r.line }) catch return;
-}
-
-pub inline fn handle(self: *Handler, r: SearchResult) void {
-    self.mutex.lock();
-    defer self.mutex.unlock();
-    self.handling_fn(self, r);
-}
-
-pub inline fn handle_output(self: *Handler, data: []const u8) void {
-    self.mutex.lock();
-    defer self.mutex.unlock();
-    _ = self.writer.write(data) catch return;
-}
-
-pub inline fn handling_fn_output(_: *Handler, writer: std.io.AnyWriter, r: SearchResult) !void {
+fn format_fn_default(_: *Handler, writer: std.io.AnyWriter, r: SearchResult) !void {
     try writer.print("{d}:{d}: {s}\n", .{ r.row, r.col, r.line });
 }
 
-pub inline fn handle_all(self: *Handler, rs: []const SearchResult) void {
+fn format_fn_vimgrep(_: *Handler, writer: std.io.AnyWriter, r: SearchResult) !void {
+    try writer.print("TODO IMPLEMENT THIS, BUT: {}\n", .{r});
+}
+
+fn format_fn_testing(self: *Handler, writer: std.io.AnyWriter, r: SearchResult) !void {
+    if (self.opts.testing_format_count) |ptr| {
+        ptr.* += 1;
+    }
+    try writer.print("{d}:{d}: {s}\n", .{ r.row, r.col, r.line });
+}
+
+pub inline fn format(self: *Handler, writer: std.io.AnyWriter, r: SearchResult) !void {
+    try self.format_fn(self, writer, r);
+}
+
+pub inline fn write(self: *Handler, data: []const u8) !void {
     self.mutex.lock();
     defer self.mutex.unlock();
-    for (rs) |r| self.handling_fn(self, r);
+    _ = try self.writer.write(data);
 }
 
 const std = @import("std");
