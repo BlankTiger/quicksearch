@@ -56,7 +56,7 @@ pub fn linear_search_impl(
 
     var count_lines: usize = 1;
     var line_iter = mem.splitScalar(u8, haystack, '\n');
-    while (line_iter.next()) |line| : (count_lines += 1) {
+    line_loop: while (line_iter.next()) |line| : (count_lines += 1) {
         var col_last: usize = 0;
         while (mem.indexOfPos(u8, line, col_last, query)) |col| {
             col_last = col + 1;
@@ -66,6 +66,7 @@ pub fn linear_search_impl(
                 .line = line,
             }) catch return;
 
+            continue :line_loop;
         }
     }
 
@@ -143,7 +144,7 @@ fn simd_search_impl(
     var current_line: usize = 1;
     var line_iter = mem.splitScalar(u8, haystack, '\n');
 
-    while (line_iter.next()) |line| : (current_line += 1) {
+    line_loop: while (line_iter.next()) |line| : (current_line += 1) {
         if (line.len < query.len) continue;
 
         var line_pos: usize = 0;
@@ -173,6 +174,8 @@ fn simd_search_impl(
                             .col = match_pos + 1,
                             .line = line,
                         }) catch return;
+
+                        continue :line_loop;
                     }
                 }
             }
@@ -192,6 +195,7 @@ fn simd_search_impl(
                         .line = line,
                     }) catch return;
 
+                    continue :line_loop;
                 }
             }
         }
@@ -302,18 +306,18 @@ const Tests = struct {
 
     const input2 = "hi there hi re re";
 
-    test "search: search function returns 2 matches" {
+    test "search: search function returns 1 match per line" {
         defer test_writer.reset();
         search_fn(&test_handler, input2, "hi");
 
-        try t.expectEqual(2, WriterWrapper.format_count);
+        try t.expectEqual(1, WriterWrapper.format_count);
     }
 
-    test "search: search function returns 3 matches" {
+    test "search: search function returns 1 match per line still" {
         defer test_writer.reset();
         search_fn(&test_handler, input2, "re");
 
-        try t.expectEqual(3, WriterWrapper.format_count);
+        try t.expectEqual(1, WriterWrapper.format_count);
     }
 
     test "search: search function returns line info per match" {
@@ -348,11 +352,9 @@ const Tests = struct {
             "thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
         );
 
-        try t.expectEqual(3, WriterWrapper.format_count);
+        try t.expectEqual(1, WriterWrapper.format_count);
         try t.expectEqualStrings(
             \\1:16: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
-            \\1:86: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
-            \\1:156: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
             \\
         , test_writer.get());
     }
