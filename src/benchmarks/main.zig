@@ -12,19 +12,19 @@ pub fn main() !void {
     const method_txt = args[2];
     const method = get_method(method_txt);
 
-    const data = try get_data(path_to_data);
-    defer std.posix.munmap(data);
+    const reader: MmapReader = try .init(path_to_data);
+    defer reader.deinit();
 
     const writer = std.io.getStdErr().writer().any();
     var handler: ResultHandler = .init(writer, .{});
 
     switch (method) {
         .linear => {
-            search.linear_search(&handler, data, query);
+            search.linear_search(&handler, reader.data, query);
         },
 
         .simd => {
-            search.simd_search(&handler, data, query);
+            search.simd_search(&handler, reader.data, query);
         },
     }
 }
@@ -51,16 +51,8 @@ fn get_method(txt: []const u8) Method {
     } });
 }
 
-fn get_data(path: []const u8) ![]align(std.heap.page_size_min) const u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    const stats = try std.posix.fstat(file.handle);
-    const mem = try std.posix.mmap(null, @intCast(stats.size), std.posix.PROT.READ, .{ .TYPE = .SHARED }, file.handle, 0);
-
-    return mem;
-}
-
 const search = @import("qslib").search.search;
+const MmapReader = @import("qslib").MmapReader;
 const SearchResult = @import("qslib").SearchResult;
 const ResultHandler = @import("qslib").ResultHandler;
 const log = std.log;
