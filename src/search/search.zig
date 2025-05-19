@@ -1,4 +1,45 @@
+const THREADED_THRESHOLD = 10e6;
+const DEFAULT_THREADS = 16;
+const MAX_THREADS = 32;
+const MAX_U8 = std.math.maxInt(u8);
+const LOCAL_CAPACITY = 4096;
+
 pub fn linear_search(
+    result_handler: *ResultHandler,
+    haystack: []const u8,
+    query: []const u8,
+) void {
+    if (haystack.len > THREADED_THRESHOLD) {
+        const cpu_count = @min(MAX_THREADS, std.Thread.getCpuCount() catch DEFAULT_THREADS);
+        var threads: [MAX_THREADS]std.Thread = undefined;
+        const bytes_per_thread = haystack.len / cpu_count;
+        var idx_start: usize = 0;
+        for (0..cpu_count) |idx| {
+            var idx_end = (idx + 1) * bytes_per_thread;
+            if (idx == cpu_count - 1) {
+                idx_end = haystack.len - 1;
+            } else {
+                // make sure we always have chunks with full lines
+                while (haystack[idx_end] != '\n') idx_end += 1;
+            }
+            defer idx_start = idx_end;
+
+            threads[idx] = std.Thread.spawn(
+                .{},
+                linear_search_impl,
+                .{ result_handler, haystack[idx_start..idx_end], query },
+            ) catch |e| {
+                std.debug.print("got an error while trying to spawn a thread: {}\n", .{e});
+                return;
+            };
+        }
+        for (0..cpu_count) |idx_cpu| threads[idx_cpu].join();
+    } else {
+        linear_search_impl(result_handler, haystack, query);
+    }
+}
+
+pub fn linear_search_impl(
     result_handler: *ResultHandler,
     haystack: []const u8,
     query: []const u8,
@@ -46,18 +87,13 @@ pub fn linear_search(
 // as we go, this would make using mem.splitScalar unnecessary, probably increase
 // cache coherence too
 
-const SIMD_THRESHOLD = 10e6;
-const MAX_THREADS = 32;
-const MAX_U8 = std.math.maxInt(u8);
-const LOCAL_CAPACITY = 4096;
-
 pub fn simd_search(
     result_handler: *ResultHandler,
     haystack: []const u8,
     query: []const u8,
 ) void {
-    if (haystack.len > SIMD_THRESHOLD) {
-        const cpu_count = std.Thread.getCpuCount() catch 16;
+    if (haystack.len > THREADED_THRESHOLD) {
+        const cpu_count = @min(MAX_THREADS, std.Thread.getCpuCount() catch DEFAULT_THREADS);
         var threads: [MAX_THREADS]std.Thread = undefined;
         const bytes_per_thread = haystack.len / cpu_count;
         var idx_start: usize = 0;
