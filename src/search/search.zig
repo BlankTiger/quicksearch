@@ -60,17 +60,12 @@ pub fn linear_search_impl(
         var col_last: usize = 0;
         while (mem.indexOfPos(u8, line, col_last, query)) |col| {
             col_last = col + 1;
-            result_handler.format(writer, .{ .row = count_lines, .col = col_last, .line = line }) catch {
-                std.debug.print("OOM while trying to format a result and write to a local buffer\n", .{});
-            };
-        }
+            handle_result(result_handler, &local, writer, .{
+                .row = count_lines,
+                .col = col_last,
+                .line = line,
+            }) catch return;
 
-        if (local.items.len > local.capacity * 9 / 10) {
-            result_handler.write(local.items) catch {
-                std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
-                return;
-            };
-            local.clearRetainingCapacity();
         }
     }
 
@@ -173,22 +168,11 @@ fn simd_search_impl(
                         continue;
 
                     if (mem.eql(u8, line[match_pos .. match_pos + query.len], query)) {
-                        result_handler.format(writer, .{
+                        handle_result(result_handler, &local, writer, .{
                             .row = current_line,
                             .col = match_pos + 1,
                             .line = line,
-                        }) catch {
-                            std.debug.print("OOM while trying to append to local buffer\n", .{});
-                            return;
-                        };
-
-                        if (local.items.len > local.capacity * 9 / 10) {
-                            result_handler.write(local.items) catch {
-                                std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
-                                return;
-                            };
-                            local.clearRetainingCapacity();
-                        }
+                        }) catch return;
                     }
                 }
             }
@@ -202,33 +186,38 @@ fn simd_search_impl(
             var pos = line_pos;
             while (pos <= line.len - query.len) : (pos += 1) {
                 if (mem.eql(u8, line[pos .. pos + query.len], query)) {
-                    result_handler.format(writer, .{
+                    handle_result(result_handler, &local, writer, .{
                         .row = current_line,
                         .col = pos + 1,
                         .line = line,
-                    }) catch {
-                        std.debug.print("OOM while trying to append to local buffer\n", .{});
-                        return;
-                    };
+                    }) catch return;
 
-                    if (local.items.len > local.capacity * 9 / 10) {
-                        result_handler.write(local.items) catch {
-                            std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
-                            return;
-                        };
-                        local.clearRetainingCapacity();
-                    }
                 }
             }
         }
+    }
 
-        if (local.items.len > 0) {
-            result_handler.write(local.items) catch {
-                std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
-                return;
-            };
-            local.clearRetainingCapacity();
-        }
+    if (local.items.len > 0) {
+        result_handler.write(local.items) catch {
+            std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
+            return;
+        };
+        local.clearRetainingCapacity();
+    }
+}
+
+inline fn handle_result(handler: *ResultHandler, local: *std.ArrayList(u8), writer: std.io.AnyWriter, result: SearchResult) !void {
+    handler.format(writer, result) catch |e| {
+        std.debug.print("OOM while trying to append to local buffer\n", .{});
+        return e;
+    };
+
+    if (local.items.len > local.capacity * 9 / 10) {
+        handler.write(local.items) catch |e| {
+            std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
+            return e;
+        };
+        local.clearRetainingCapacity();
     }
 }
 
