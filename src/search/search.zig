@@ -6,14 +6,39 @@ pub fn linear_search(
     if (query.len > haystack.len) return;
     if (query.len == 0) return;
 
+    var local = std.ArrayList(u8).initCapacity(std.heap.page_allocator, LOCAL_CAPACITY) catch {
+        std.debug.print("encountered an error while trying to allocate a local buffer\n", .{});
+        return;
+    };
+    defer local.deinit();
+    const writer = local.writer().any();
+
     var count_lines: usize = 1;
     var line_iter = mem.splitScalar(u8, haystack, '\n');
     while (line_iter.next()) |line| : (count_lines += 1) {
         var col_last: usize = 0;
         while (mem.indexOfPos(u8, line, col_last, query)) |col| {
             col_last = col + 1;
-            result_handler.handle(.{ .row = count_lines, .col = col_last, .line = line });
+            result_handler.format(writer, .{ .row = count_lines, .col = col_last, .line = line }) catch {
+                std.debug.print("OOM while trying to format a result and write to a local buffer\n", .{});
+            };
         }
+
+        if (local.items.len > local.capacity * 9 / 10) {
+            result_handler.write(local.items) catch {
+                std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
+                return;
+            };
+            local.clearRetainingCapacity();
+        }
+    }
+
+    if (local.items.len > 0) {
+        result_handler.write(local.items) catch {
+            std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
+            return;
+        };
+        local.clearRetainingCapacity();
     }
 }
 
@@ -24,6 +49,7 @@ pub fn linear_search(
 const SIMD_THRESHOLD = 10e6;
 const MAX_THREADS = 32;
 const MAX_U8 = std.math.maxInt(u8);
+const LOCAL_CAPACITY = 4096;
 
 pub fn simd_search(
     result_handler: *ResultHandler,
@@ -69,7 +95,7 @@ fn simd_search_impl(
     if (query.len == 0) return;
 
     const allocator = std.heap.page_allocator;
-    var local = std.ArrayList(u8).initCapacity(allocator, 4096) catch |e| {
+    var local = std.ArrayList(u8).initCapacity(allocator, LOCAL_CAPACITY) catch |e| {
         std.debug.print("couldnt create a local buffer for SearchResults: {}\n", .{e});
         return;
     };
@@ -111,7 +137,7 @@ fn simd_search_impl(
                         continue;
 
                     if (mem.eql(u8, line[match_pos .. match_pos + query.len], query)) {
-                        result_handler.handling_fn_output(writer, .{
+                        result_handler.format(writer, .{
                             .row = current_line,
                             .col = match_pos + 1,
                             .line = line,
@@ -121,7 +147,10 @@ fn simd_search_impl(
                         };
 
                         if (local.items.len > local.capacity * 9 / 10) {
-                            result_handler.handle_output(local.items);
+                            result_handler.write(local.items) catch {
+                                std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
+                                return;
+                            };
                             local.clearRetainingCapacity();
                         }
                     }
@@ -137,7 +166,7 @@ fn simd_search_impl(
             var pos = line_pos;
             while (pos <= line.len - query.len) : (pos += 1) {
                 if (mem.eql(u8, line[pos .. pos + query.len], query)) {
-                    result_handler.handling_fn_output(writer, .{
+                    result_handler.format(writer, .{
                         .row = current_line,
                         .col = pos + 1,
                         .line = line,
@@ -147,7 +176,10 @@ fn simd_search_impl(
                     };
 
                     if (local.items.len > local.capacity * 9 / 10) {
-                        result_handler.handle_output(local.items);
+                        result_handler.write(local.items) catch {
+                            std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
+                            return;
+                        };
                         local.clearRetainingCapacity();
                     }
                 }
@@ -155,7 +187,10 @@ fn simd_search_impl(
         }
 
         if (local.items.len > 0) {
-            result_handler.handle_output(local.items);
+            result_handler.write(local.items) catch {
+                std.debug.print("encountered an error while trying to write accumulated local results to an output writer\n", .{});
+                return;
+            };
             local.clearRetainingCapacity();
         }
     }
@@ -170,13 +205,13 @@ const Tests = struct {
     const WriterWrapper = struct {
         var data = [_]u8{0} ** 10e3;
         var len: usize = 0;
-        var write_count: usize = 0;
+        var format_count: usize = 0;
 
         const Self = @This();
 
         fn reset(_: Self) void {
             len = 0;
-            write_count = 0;
+            format_count = 0;
         }
 
         fn write(_: *const anyopaque, bytes: []const u8) anyerror!usize {
@@ -207,7 +242,7 @@ const Tests = struct {
         const writer = test_writer.writer();
         test_handler = .init(writer, .{
             .handling_type = .testing,
-            .testing_handle_count = &WriterWrapper.write_count,
+            .testing_format_count = &WriterWrapper.format_count,
         });
         search_fn = t_context.search_fns[idx_curr_fn][0];
         name = t_context.search_fns[idx_curr_fn][1];
@@ -221,7 +256,7 @@ const Tests = struct {
         defer test_writer.reset();
         search_fn(&test_handler, "hi", "hih");
 
-        try t.expectEqual(0, WriterWrapper.write_count);
+        try t.expectEqual(0, WriterWrapper.format_count);
     }
 
     const input1 = "some bytes here";
@@ -230,7 +265,7 @@ const Tests = struct {
     test "search: search function returns some search results" {
         defer test_writer.reset();
         search_fn(&test_handler, input1, query1);
-        try t.expectEqual(1, WriterWrapper.write_count);
+        try t.expectEqual(1, WriterWrapper.format_count);
     }
 
     test "search: first result of search function is correct" {
@@ -246,21 +281,21 @@ const Tests = struct {
         defer test_writer.reset();
         search_fn(&test_handler, input2, "hi");
 
-        try t.expectEqual(2, WriterWrapper.write_count);
+        try t.expectEqual(2, WriterWrapper.format_count);
     }
 
     test "search: search function returns 3 matches" {
         defer test_writer.reset();
         search_fn(&test_handler, input2, "re");
 
-        try t.expectEqual(3, WriterWrapper.write_count);
+        try t.expectEqual(3, WriterWrapper.format_count);
     }
 
     test "search: search function returns line info per match" {
         defer test_writer.reset();
         search_fn(&test_handler, "hi hello\nhi hello", "hi");
 
-        try t.expectEqual(2, WriterWrapper.write_count);
+        try t.expectEqual(2, WriterWrapper.format_count);
         try t.expectEqualStrings(
             \\1:1: hi hello
             \\2:1: hi hello
@@ -272,7 +307,7 @@ const Tests = struct {
         defer test_writer.reset();
         search_fn(&test_handler, "hi\n\nhi", "hi");
 
-        try t.expectEqual(2, WriterWrapper.write_count);
+        try t.expectEqual(2, WriterWrapper.format_count);
         try t.expectEqualStrings(
             \\1:1: hi
             \\3:1: hi
@@ -288,7 +323,7 @@ const Tests = struct {
             "thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
         );
 
-        try t.expectEqual(3, WriterWrapper.write_count);
+        try t.expectEqual(3, WriterWrapper.format_count);
         try t.expectEqualStrings(
             \\1:16: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
             \\1:86: some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah
