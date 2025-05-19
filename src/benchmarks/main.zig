@@ -15,7 +15,8 @@ pub fn main() !void {
     const data = try get_data(path_to_data);
     defer std.posix.munmap(data);
 
-    var handler: ResultHandler = .init(std.io.getStdOut().writer().any(), .{});
+    const writer = std.io.getStdErr().writer().any();
+    var handler: ResultHandler = .init(writer, .{});
 
     switch (method) {
         .linear => {
