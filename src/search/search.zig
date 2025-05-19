@@ -118,6 +118,12 @@ pub fn simd_search(
     }
 }
 
+const vector_len = simd.suggestVectorLength(u8) orelse 16;
+const Vec = @Vector(vector_len, u8);
+
+const max_vals: Vec = @splat(MAX_U8);
+const indexes = simd.iota(u8, vector_len);
+
 fn simd_search_impl(
     result_handler: *ResultHandler,
     haystack: []const u8,
@@ -134,15 +140,11 @@ fn simd_search_impl(
     defer local.deinit();
     const writer = local.writer().any();
 
-    const vector_len = simd.suggestVectorLength(u8) orelse 16;
-    const T = @Vector(vector_len, u8);
-
-    const q_start: T = @splat(query[0]);
-    const max_vals: T = @splat(MAX_U8);
-    const indexes = simd.iota(u8, vector_len);
+    const q_start: Vec = @splat(query[0]);
 
     var current_line: usize = 1;
     var line_iter = mem.splitScalar(u8, haystack, '\n');
+    // var line_iter = LineSplitter.init(haystack);
 
     line_loop: while (line_iter.next()) |line| : (current_line += 1) {
         if (line.len < query.len) continue;
@@ -150,7 +152,7 @@ fn simd_search_impl(
         var line_pos: usize = 0;
 
         while (line_pos + vector_len <= line.len) {
-            const part: T = line[line_pos .. line_pos + vector_len][0..vector_len].*;
+            const part: Vec = line[line_pos .. line_pos + vector_len][0..vector_len].*;
             const matches_start = part == q_start;
 
             if (@reduce(.Or, matches_start)) {
@@ -224,6 +226,49 @@ inline fn handle_result(handler: *ResultHandler, local: *std.ArrayList(u8), writ
         local.clearRetainingCapacity();
     }
 }
+
+const LineSplitter = struct {
+    idx: usize = 0,
+    haystack: []const u8,
+
+    const newlines: Vec = @splat('\n');
+
+    fn init(txt: []const u8) LineSplitter {
+        return .{ .haystack = txt };
+    }
+
+    fn next(self: *LineSplitter) ?[]const u8 {
+        if (self.idx >= self.haystack.len) return null;
+
+        var idx_new: usize = self.idx;
+        var maybe_idx_first: ?simd.VectorIndex(Vec) = null;
+
+        while (idx_new + vector_len < self.haystack.len) : (idx_new += vector_len) {
+            const part: Vec = self.haystack[idx_new .. idx_new + vector_len][0..vector_len].*;
+            const mask_newlines = part == newlines;
+            maybe_idx_first = simd.firstTrue(mask_newlines);
+            if (maybe_idx_first) |idx_first| {
+                const idx_old = self.idx;
+                idx_new += idx_first;
+                self.idx = idx_new + 1;
+                return self.haystack[idx_old..idx_new];
+            }
+        }
+
+        for (self.haystack[idx_new..], 0..) |c, idx_offset| {
+            if (c == '\n') {
+                const idx_old = self.idx;
+                idx_new += idx_offset;
+                self.idx = idx_new + 1;
+                return self.haystack[idx_old..idx_new];
+            }
+        }
+
+        const idx_old = self.idx;
+        self.idx = self.haystack.len;
+        return self.haystack[idx_old..];
+    }
+};
 
 test {
     _ = Tests;
