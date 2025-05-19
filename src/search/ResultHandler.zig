@@ -1,6 +1,7 @@
 writer: std.io.AnyWriter,
 opts: Options = .{},
 handling_fn: HandlingFn,
+mutex: std.Thread.Mutex = .{},
 
 const Handler = @This();
 
@@ -49,9 +50,18 @@ fn handling_fn_testing(self: *Handler, r: SearchResult) void {
     self.writer.print("{d}:{d}: {s}\n", .{ r.row, r.col, r.line }) catch return;
 }
 
-pub fn handle(self: *Handler, r: SearchResult) void {
+pub inline fn handle(self: *Handler, r: SearchResult) void {
+    self.mutex.lock();
+    defer self.mutex.unlock();
     self.handling_fn(self, r);
+}
+
+pub inline fn handle_all(self: *Handler, rs: []const SearchResult) void {
+    self.mutex.lock();
+    defer self.mutex.unlock();
+    for (rs) |r| self.handling_fn(self, r);
 }
 
 const std = @import("std");
 const SearchResult = @import("SearchResult.zig");
+const builtin = @import("builtin");
