@@ -6,9 +6,11 @@ const Handler = @This();
 
 const HandlingFn = *const fn (*Handler, SearchResult) void;
 
-pub const Options = struct {
+pub const Options = if (!builtin.is_test) struct {
     handling_type: HandlingType = .default,
-    __testing_handle_count: ?*usize = null,
+} else struct {
+    handling_type: HandlingType = .default,
+    testing_handle_count: ?*usize = null,
 };
 
 pub const HandlingType = enum {
@@ -41,7 +43,7 @@ fn handling_fn_vimgrep(self: *Handler, r: SearchResult) void {
 }
 
 fn handling_fn_testing(self: *Handler, r: SearchResult) void {
-    if (self.opts.__testing_handle_count) |ptr| {
+    if (self.opts.testing_handle_count) |ptr| {
         ptr.* += 1;
     }
     self.writer.print("{d}:{d}: {s}\n", .{ r.row, r.col, r.line }) catch return;

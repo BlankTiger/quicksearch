@@ -178,7 +178,7 @@ const Tests = struct {
         const writer = test_writer.writer();
         test_handler = .init(writer, .{
             .handling_type = .testing,
-            .__testing_handle_count = &WriterWrapper.write_count,
+            .testing_handle_count = &WriterWrapper.write_count,
         });
         search_fn = t_context.search_fns[idx_curr_fn][0];
         name = t_context.search_fns[idx_curr_fn][1];
