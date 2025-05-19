@@ -71,6 +71,8 @@ fn handle_search_tests(tests: []const std.builtin.TestFn, fns: []const t_context
             tests_failed,
         },
     );
+
+    if (tests_failed > 0) return error.TestsFailed;
 }
 
 fn handle_normal_tests(tests: []const std.builtin.TestFn) !void {
@@ -94,6 +96,8 @@ fn handle_normal_tests(tests: []const std.builtin.TestFn) !void {
         "Ran {d} tests. Passed: {d}, failed: {d}\n\n",
         .{ tests.len, tests_passed, tests_failed },
     );
+
+    if (tests_failed > 0) return error.TestsFailed;
 }
 
 const std = @import("std");
