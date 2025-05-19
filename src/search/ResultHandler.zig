@@ -56,6 +56,16 @@ pub inline fn handle(self: *Handler, r: SearchResult) void {
     self.handling_fn(self, r);
 }
 
+pub inline fn handle_output(self: *Handler, data: []const u8) void {
+    self.mutex.lock();
+    defer self.mutex.unlock();
+    _ = self.writer.write(data) catch return;
+}
+
+pub inline fn handling_fn_output(_: *Handler, writer: std.io.AnyWriter, r: SearchResult) !void {
+    try writer.print("{d}:{d}: {s}\n", .{ r.row, r.col, r.line });
+}
+
 pub inline fn handle_all(self: *Handler, rs: []const SearchResult) void {
     self.mutex.lock();
     defer self.mutex.unlock();
