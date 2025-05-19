@@ -68,6 +68,14 @@ fn simd_search_impl(
     if (query.len > haystack.len) return;
     if (query.len == 0) return;
 
+    const allocator = std.heap.page_allocator;
+    var local = std.ArrayList(u8).initCapacity(allocator, 4096) catch |e| {
+        std.debug.print("couldnt create a local buffer for SearchResults: {}\n", .{e});
+        return;
+    };
+    defer local.deinit();
+    const writer = local.writer().any();
+
     const vector_len = simd.suggestVectorLength(u8) orelse 16;
     const T = @Vector(vector_len, u8);
 
@@ -103,11 +111,19 @@ fn simd_search_impl(
                         continue;
 
                     if (mem.eql(u8, line[match_pos .. match_pos + query.len], query)) {
-                        result_handler.handle(SearchResult{
+                        result_handler.handling_fn_output(writer, .{
                             .row = current_line,
                             .col = match_pos + 1,
                             .line = line,
-                        });
+                        }) catch {
+                            std.debug.print("OOM while trying to append to local buffer\n", .{});
+                            return;
+                        };
+
+                        if (local.items.len > local.capacity * 9 / 10) {
+                            result_handler.handle_output(local.items);
+                            local.clearRetainingCapacity();
+                        }
                     }
                 }
             }
@@ -121,13 +137,26 @@ fn simd_search_impl(
             var pos = line_pos;
             while (pos <= line.len - query.len) : (pos += 1) {
                 if (mem.eql(u8, line[pos .. pos + query.len], query)) {
-                    result_handler.handle(SearchResult{
+                    result_handler.handling_fn_output(writer, .{
                         .row = current_line,
                         .col = pos + 1,
                         .line = line,
-                    });
+                    }) catch {
+                        std.debug.print("OOM while trying to append to local buffer\n", .{});
+                        return;
+                    };
+
+                    if (local.items.len > local.capacity * 9 / 10) {
+                        result_handler.handle_output(local.items);
+                        local.clearRetainingCapacity();
+                    }
                 }
             }
+        }
+
+        if (local.items.len > 0) {
+            result_handler.handle_output(local.items);
+            local.clearRetainingCapacity();
         }
     }
 }
