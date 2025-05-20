@@ -28,19 +28,19 @@ pub fn find_files(opts: Options) !PathList {
                 return paths;
             },
             .directory => {
-                try find_files_in_dir(cwd, path, &paths, opts);
+                try find_files_in_dir(path, &paths, opts);
             },
             else => {},
         }
     } else {
-        try find_files_in_dir(cwd, "./", &paths, opts);
+        try find_files_in_dir(".", &paths, opts);
     }
 
     return paths;
 }
 
-fn find_files_in_dir(cwd: std.fs.Dir, path: []const u8, paths: *PathList, opts: Options) !void {
-    var dir = try cwd.openDir(path, .{ .iterate = true });
+fn find_files_in_dir(path: []const u8, paths: *PathList, opts: Options) !void {
+    var dir = try std.fs.cwd().openDir(path, .{ .iterate = true });
     defer dir.close();
     var iter = dir.iterate();
 
@@ -51,11 +51,15 @@ fn find_files_in_dir(cwd: std.fs.Dir, path: []const u8, paths: *PathList, opts: 
             .file => {
                 if (opts.extension != null and !std.mem.endsWith(u8, e.name, opts.extension.?)) continue;
 
-                const abs = try dir.realpathAlloc(opts.allocator, e.name);
-                errdefer opts.allocator.free(abs);
-                try paths.append(abs);
+                const relative = try std.fmt.allocPrint(opts.allocator, "{s}/{s}", .{path, e.name});
+                errdefer opts.allocator.free(relative);
+                try paths.append(relative);
             },
-            .directory => try find_files_in_dir(dir, e.name, paths, opts),
+            .directory => {
+                const relative = try std.fmt.allocPrint(opts.allocator, "{s}/{s}", .{path, e.name});
+                defer opts.allocator.free(relative);
+                try find_files_in_dir(relative, paths, opts);
+            },
             else => {},
         }
     }
