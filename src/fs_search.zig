@@ -18,9 +18,8 @@ pub fn find_files(opts: Options) !PathList {
         paths.deinit();
     }
 
-    const cwd = std.fs.cwd();
-
     if (opts.path) |path| {
+        const cwd = std.fs.cwd();
         const stat = try cwd.statFile(path);
         switch (stat.kind) {
             .file => {
@@ -51,18 +50,33 @@ fn find_files_in_dir(path: []const u8, paths: *PathList, opts: Options) !void {
             .file => {
                 if (opts.extension != null and !std.mem.endsWith(u8, e.name, opts.extension.?)) continue;
 
-                const relative = try std.fmt.allocPrint(opts.allocator, "{s}/{s}", .{path, e.name});
+                const relative = try make_relative(opts.allocator, path, e.name);
+                if (opts.respect_gitignore and opts.gitignorer.?.is_ignored(relative, e.kind)) {
+                    opts.allocator.free(relative);
+                    continue;
+                }
+
                 errdefer opts.allocator.free(relative);
                 try paths.append(relative);
             },
             .directory => {
-                const relative = try std.fmt.allocPrint(opts.allocator, "{s}/{s}", .{path, e.name});
+                const relative = try make_relative(opts.allocator, path, e.name);
+                if (opts.respect_gitignore and opts.gitignorer.?.is_ignored(relative, e.kind)) {
+                    opts.allocator.free(relative);
+                    continue;
+                }
+
                 defer opts.allocator.free(relative);
                 try find_files_in_dir(relative, paths, opts);
             },
             else => {},
         }
     }
+}
+
+/// caller owns the resulting memory
+fn make_relative(allocator: std.mem.Allocator, pre: []const u8, post: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(allocator, "{s}/{s}", .{pre, post});
 }
 
 test {
