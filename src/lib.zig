@@ -7,12 +7,14 @@ pub const simd_search = search.simd_search;
 test {
     // NOTE: DO NOT MENTION SEARCH HERE BECAUSE IT HAS ITS OWN
     // CUSTOM TEST RUNNER SETUP
+
     _ = MmapReader;
-    _ = Ignorer;
+    _ = GitIgnorer;
     _ = fs_search;
 }
 
 pub const search = @import("search.zig");
 pub const MmapReader = @import("MmapReader.zig");
 pub const Ignorer = @import("Ignorer.zig");
+pub const GitIgnorer = @import("GitIgnorer.zig");
 pub const fs_search = @import("fs_search.zig");
