@@ -4,9 +4,8 @@ pub const Options = struct {
     path: ?[]const u8 = null,
     extension: ?[]const u8 = null,
     ignore_hidden: bool = true,
-
-    // TODO: implement
-    // gitignore: bool = true,
+    respect_gitignore: bool = true,
+    gitignorer: ?GitIgnorer = null,
 };
 
 const PathList = std.ArrayList([]const u8);
@@ -93,3 +92,4 @@ test {
 
 const t = std.testing;
 const std = @import("std");
+const GitIgnorer = @import("GitIgnorer.zig");
