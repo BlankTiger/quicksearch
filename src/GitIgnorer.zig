@@ -73,6 +73,77 @@ pub fn is_ignored(self: *GitIgnorer, path: []const u8) !bool {
     return false;
 }
 
+fn get_rules(self: *GitIgnorer, path: []const u8) !?IgnoreRules {
+    if (path.len < 2) return null;
+    if (path[0] != '/' and !(path[0] == '.' and path[1] == '/')) @panic("we should only have paths that start with a './' or a '/' here");
+
+    return try self.find_closest_rules(path);
+}
+
+/// go from the leftmost directory and build the cache if it's not built already
+/// and return the rules for the path that was passed in here
+fn find_closest_rules(self: *GitIgnorer, path: []const u8) !?IgnoreRules {
+    const cwd = std.fs.cwd();
+    var closest_rules: ?IgnoreRules = null;
+
+    var gen: PathParentGenerator = .init(path);
+    while (gen.next()) |path_part| {
+        if ((try cwd.statFile(path_part)).kind == .file) return closest_rules;
+
+        var maybe_rules: ?IgnoreRules = null;
+        if (self.cache.get(path_part)) |m_rules| {
+            // we already parsed this path
+            if (m_rules) |rules| maybe_rules = rules;
+        } else {
+            // havent seen this path before
+            var dir = try cwd.openDir(path_part, .{});
+            defer dir.close();
+
+            try self.parse_rules_in_dir(dir, &maybe_rules);
+            try self.cache.put(path_part, maybe_rules);
+        }
+
+        if (maybe_rules) |rules| {
+            if (closest_rules) |_| {
+                try closest_rules.?.merge(rules);
+            } else {
+                closest_rules = rules;
+            }
+        }
+    }
+
+    return closest_rules;
+}
+
+fn parse_rules_in_dir(self: GitIgnorer, dir: std.fs.Dir, maybe_rules: *?IgnoreRules) !void {
+    const maybe_exclude = dir.openFile(".git/info/exclude", .{}) catch null;
+    if (maybe_exclude) |exclude| {
+        defer exclude.close();
+        try self.parse_rules(exclude, maybe_rules);
+    }
+
+    const maybe_gitignore = dir.openFile(".gitignore", .{}) catch null;
+    if (maybe_gitignore) |gitignore| {
+        defer gitignore.close();
+        try self.parse_rules(gitignore, maybe_rules);
+    }
+}
+
+fn parse_rules(self: GitIgnorer, ignore_file: std.fs.File, maybe_rules: *?IgnoreRules) !void {
+    var new_rules: IgnoreRules = .init(self.allocator);
+    errdefer new_rules.deinit();
+
+    const file_content = try ignore_file.readToEndAlloc(self.allocator, comptime std.math.maxInt(usize));
+    defer self.allocator.free(file_content);
+
+    if (maybe_rules.*) |_| {
+        try maybe_rules.*.?.merge(new_rules);
+        new_rules.deinit();
+    } else {
+        maybe_rules.* = new_rules;
+    }
+}
+
 test "show rules" {
     var ignorer: GitIgnorer = .init(std.testing.allocator);
     defer ignorer.deinit();
@@ -82,3 +153,4 @@ test "show rules" {
 }
 
 const std = @import("std");
+const PathParentGenerator = @import("PathParentGenerator.zig");
