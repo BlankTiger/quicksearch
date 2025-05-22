@@ -43,16 +43,17 @@ const IgnoreRules = struct {
 };
 
 const Rule = struct {};
-const Self = @This();
 
-pub fn init(allocator: std.mem.Allocator) Self {
+const GitIgnorer = @This();
+
+pub fn init(allocator: std.mem.Allocator) GitIgnorer {
     return .{
         .cache = .init(allocator),
         .allocator = allocator,
     };
 }
 
-pub fn deinit(self: Self) void {
+pub fn deinit(self: *GitIgnorer) void {
     self.cache.deinit();
 }
 
