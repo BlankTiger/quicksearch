@@ -73,5 +73,12 @@ pub fn is_ignored(self: *GitIgnorer, path: []const u8) !bool {
     return false;
 }
 
+test "show rules" {
+    var ignorer: GitIgnorer = .init(std.testing.allocator);
+    defer ignorer.deinit();
+
+    const rules = ignorer.is_ignored("./src/search/search.zig");
+    std.debug.print("rules: {}\n", .{rules});
+}
 
 const std = @import("std");
