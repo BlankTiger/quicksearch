@@ -57,5 +57,21 @@ pub fn deinit(self: *GitIgnorer) void {
     self.cache.deinit();
 }
 
+/// recursively go backwards until we encounter a directory that is a git
+/// directory, if its not then we can store the whole thing in the cache and
+/// not check it again if we find the same prefix
+///
+/// if some prefix at some point turns out to be a git directory, then if
+/// its not in the cache, we must add it and add parsed .gitignore and
+/// $GIT_DIR/info/exclude or something like that there
+pub fn is_ignored(self: *GitIgnorer, path: []const u8) !bool {
+    const maybe_rules = try self.get_rules(path);
+
+    if (maybe_rules) |rules| if (rules.match(path)) {
+        return true;
+    };
+    return false;
+}
+
 
 const std = @import("std");
