@@ -16,6 +16,6 @@ test {
 
 pub const search = @import("search.zig");
 pub const MmapReader = @import("MmapReader.zig");
-const PathParentGenerator = @import("PathParentGenerator.zig");
 pub const GitIgnorer = @import("GitIgnorer.zig");
 pub const fs_search = @import("fs_search.zig");
+const PathParentGenerator = @import("PathParentGenerator.zig");
