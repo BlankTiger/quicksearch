@@ -5,13 +5,16 @@
 cache: Cache,
 allocator: std.mem.Allocator,
 
+const GitIgnorer = @This();
+
 const Cache = std.StringHashMap(?IgnoreRules);
+const Rules = std.ArrayList(Rule);
+const Rule = struct {};
 
 const IgnoreRules = struct {
     rules: Rules,
     allocator: std.mem.Allocator,
 
-    const Rules = std.ArrayList(Rule);
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) Self {
@@ -42,10 +45,6 @@ const IgnoreRules = struct {
     pub fn match(self: Self, path: []const u8) bool {}
 };
 
-const Rule = struct {};
-
-const GitIgnorer = @This();
-
 pub fn init(allocator: std.mem.Allocator) GitIgnorer {
     return .{
         .cache = .init(allocator),
@@ -73,16 +72,12 @@ pub fn is_ignored(self: *GitIgnorer, path: []const u8) !bool {
     return false;
 }
 
+/// go from the leftmost directory and build the cache if it's not built already
+/// and return the rules for the path that was passed in here
 fn get_rules(self: *GitIgnorer, path: []const u8) !?IgnoreRules {
     if (path.len < 2) return null;
     if (path[0] != '/' and !(path[0] == '.' and path[1] == '/')) @panic("we should only have paths that start with a './' or a '/' here");
 
-    return try self.find_closest_rules(path);
-}
-
-/// go from the leftmost directory and build the cache if it's not built already
-/// and return the rules for the path that was passed in here
-fn find_closest_rules(self: *GitIgnorer, path: []const u8) !?IgnoreRules {
     const cwd = std.fs.cwd();
     var closest_rules: ?IgnoreRules = null;
 
@@ -91,16 +86,15 @@ fn find_closest_rules(self: *GitIgnorer, path: []const u8) !?IgnoreRules {
         if ((try cwd.statFile(path_part)).kind == .file) return closest_rules;
 
         var maybe_rules: ?IgnoreRules = null;
-        if (self.cache.get(path_part)) |m_rules| {
+        if (self.cache.get(path_part)) |rules| {
             // we already parsed this path
-            if (m_rules) |rules| maybe_rules = rules;
+            maybe_rules = rules;
         } else {
             // havent seen this path before
             var dir = try cwd.openDir(path_part, .{});
             defer dir.close();
 
             try self.parse_rules_in_dir(dir, &maybe_rules);
-            try self.cache.put(path_part, maybe_rules);
         }
 
         if (maybe_rules) |rules| {
@@ -109,6 +103,8 @@ fn find_closest_rules(self: *GitIgnorer, path: []const u8) !?IgnoreRules {
             } else {
                 closest_rules = rules;
             }
+
+            try self.cache.put(path_part, closest_rules.?);
         }
     }
 
