@@ -245,6 +245,32 @@ const ParserTests = struct {
         }, rules.items[4].parts);
     }
 
+    test "parse negation" {
+        const p: Parser = .init(t.allocator);
+        defer p.deinit();
+        const rules = try p.parse(
+            \\!file_a.txt
+            \\\!file_b.txt
+            \\\!file_!.txt
+        );
+        defer rules.deinit();
+
+        try t.expectEqual(3, rules.items.len);
+
+        try t.expect(rules.items[0].is_negated);
+        try t.expectEqualDeep(&[_]Part{.{ .literal = "file_a.txt" }}, rules.items[0].parts);
+
+        try t.expect(!rules.items[1].is_negated);
+        try t.expectEqualDeep(&[_]Part{
+            .{ .literal = "!file_b.txt" },
+        }, rules.items[1].parts);
+
+        try t.expect(!rules.items[2].is_negated);
+        try t.expectEqualDeep(&[_]Part{
+            .{ .literal = "!file_!.txt" },
+        }, rules.items[2].parts);
+    }
+
     const t = std.testing;
 };
 
