@@ -50,7 +50,35 @@ const Parser = struct {
         var parts: std.ArrayList(Part) = .init(allocator);
         errdefer parts.deinit();
 
-        try parts.append(.{ .literal = try allocator.dupe(u8, line) });
+        var idx: usize = 0;
+        var idx_start_literal: ?usize = null;
+
+        while (idx < line.len) {
+            const ch = line[idx];
+            switch (ch) {
+                '*' => {
+                    if (idx_start_literal) |idx_start| {
+                        try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx]) });
+                        idx_start_literal = null;
+                    }
+                    idx += 1;
+                    try parts.append(.star);
+                },
+
+                else => {
+                    if (idx_start_literal == null) {
+                        idx_start_literal = idx;
+                    }
+                    idx += 1;
+                },
+            }
+        }
+
+        if (idx_start_literal) |idx_start| {
+            try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..]) });
+            idx_start_literal = null;
+        }
+
         return .{
             .parts = try parts.toOwnedSlice(),
         };
@@ -78,11 +106,13 @@ const Rules = struct {
         parts: []Part,
 
         const Part = union(enum) {
+            star: void,
             literal: []const u8,
 
             inline fn deinit(self: Part, allocator: std.mem.Allocator) void {
                 switch (self) {
                     .literal => |txt| allocator.free(txt),
+                    .star => {},
                 }
             }
         };
