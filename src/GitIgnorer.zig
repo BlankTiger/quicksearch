@@ -20,7 +20,12 @@ const Parser = struct {
         };
     }
 
-    pub fn deinit(self: Self) void { _ = self; }
+    pub fn deinit(self: Self) void {
+        _ = self;
+    }
+
+    const Rule = Rules.Rule;
+    const Part = Rule.Part;
 
     pub fn parse(self: *const Self, content: []const u8) !Rules {
         if (std.mem.eql(u8, content, "")) return .init(self.allocator, &.{});
@@ -30,7 +35,17 @@ const Parser = struct {
 
         var line_iter = std.mem.splitScalar(u8, content, '\n');
         while (line_iter.next()) |line| {
-            try list.append(.{ .literal = try list.allocator.dupe(u8, line) });
+            if (std.mem.eql(u8, line, "")) continue;
+            if (std.mem.startsWith(u8, line, "#")) continue;
+
+            var parts: std.ArrayList(Part) = .init(list.allocator);
+            errdefer parts.deinit();
+
+            try parts.append(.{ .literal = try list.allocator.dupe(u8, line) });
+
+            try list.append(.{
+                .parts = try parts.toOwnedSlice(),
+            });
         }
 
         return .init(list.allocator, try list.toOwnedSlice());
@@ -41,35 +56,44 @@ const Rules = struct {
     items: []const Rule,
     allocator: std.mem.Allocator,
 
-    const Self = @This();
-
     /// must be the same `allocator`, that allocated the `rules`
-    pub fn init(allocator: std.mem.Allocator, rules: []const Rule) Self {
+    pub fn init(allocator: std.mem.Allocator, rules: []const Rule) Rules {
         return .{
             .allocator = allocator,
             .items = rules,
         };
     }
 
-    pub fn deinit(self: Self) void {
-        for (self.items) |rule| {
-            switch (rule) {
-                .literal => |txt| self.allocator.free(txt),
-            }
-        }
+    pub fn deinit(self: Rules) void {
+        for (self.items) |rule| rule.deinit(self.allocator);
         self.allocator.free(self.items);
     }
-};
 
-const Rule = union(enum) {
-    literal: []const u8,
+    const Rule = union(enum) {
+        parts: []Part,
+
+        const Part = union(enum) {
+            literal: []const u8,
+
+            inline fn deinit(self: Part, allocator: std.mem.Allocator) void {
+                switch (self) {
+                    .literal => |txt| allocator.free(txt),
+                }
+            }
+        };
+
+        pub fn deinit(self: Rule, allocator: std.mem.Allocator) void {
+            for (self.parts) |part| part.deinit(allocator);
+            allocator.free(self.parts);
+        }
+    };
 };
 
 test {
     _ = Tests;
 }
 
-const Tests = struct{
+const Tests = struct {
     test "parser can produce rules from provided text" {
         const p: Parser = .init(t.allocator);
         defer p.deinit();
