@@ -212,47 +212,37 @@ const Tests = struct {
         defer rules.deinit();
 
         try t.expectEqual(5, rules.items.len);
-        try t.expectEqual(2, rules.items[0].parts.len);
-        try t.expectEqual(3, rules.items[1].parts.len);
-        try t.expectEqual(2, rules.items[2].parts.len);
-        try t.expectEqual(4, rules.items[3].parts.len);
-        try t.expectEqual(5, rules.items[4].parts.len);
 
-        const expected_parts_0 = &[_]Part{
+        try t.expectEqualDeep(&[_]Part{
             .star,
             .{ .literal = "file_a.txt" },
-        };
-        try t.expectEqualDeep(expected_parts_0, rules.items[0].parts);
+        }, rules.items[0].parts);
 
-        const expected_parts_1 = &[_]Part{
+        try t.expectEqualDeep(&[_]Part{
             .{ .literal = "file_" },
             .star,
             .{ .literal = ".txt" },
-        };
-        try t.expectEqualDeep(expected_parts_1, rules.items[1].parts);
+        }, rules.items[1].parts);
 
-        const expected_parts_2 = &[_]Part{
+        try t.expectEqualDeep(&[_]Part{
             .{ .literal = "file_a." },
             .star,
-        };
-        try t.expectEqualDeep(expected_parts_2, rules.items[2].parts);
+        }, rules.items[2].parts);
 
-        const expected_parts_3 = &[_]Part{
+        try t.expectEqualDeep(&[_]Part{
             .{ .literal = "file_" },
             .star,
             .{ .literal = "." },
             .star,
-        };
-        try t.expectEqualDeep(expected_parts_3, rules.items[3].parts);
+        }, rules.items[3].parts);
 
-        const expected_parts_4 = &[_]Part{
+        try t.expectEqualDeep(&[_]Part{
             .star,
             .{ .literal = "file_" },
             .star,
             .{ .literal = "." },
             .star,
-        };
-        try t.expectEqualDeep(expected_parts_4, rules.items[4].parts);
+        }, rules.items[4].parts);
     }
 
     const t = std.testing;
