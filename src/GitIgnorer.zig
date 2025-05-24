@@ -133,6 +133,7 @@ const Parser = struct {
         return .{
             .parts = try parts.toOwnedSlice(),
             .is_negated = is_negated,
+            .is_for_dirs = line[line.len - 1] == '/',
         };
     }
 };
