@@ -286,6 +286,24 @@ const ParserTests = struct {
         }, rules.items[2].parts);
     }
 
+    test "rules store if they are matching directories or not" {
+        const p: Parser = .init(t.allocator);
+        defer p.deinit();
+        const rules = try p.parse(
+            \\file_a.txt
+            \\dir/
+        );
+        defer rules.deinit();
+
+        try t.expectEqual(2, rules.items.len);
+
+        try t.expect(!rules.items[0].is_for_dirs);
+        try t.expect(rules.items[1].is_for_dirs);
+        try t.expectEqualDeep(&[_]Part{
+            .{ .literal = "dir/" },
+        }, rules.items[1].parts);
+    }
+
     const t = std.testing;
 };
 
