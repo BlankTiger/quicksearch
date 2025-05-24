@@ -33,13 +33,13 @@ const Rules = struct {
 
         const Part = union(enum) {
             literal: []const u8,
-            star: void,
+            asterisk: void,
             question_mark: void,
 
             inline fn deinit(self: Part, allocator: std.mem.Allocator) void {
                 switch (self) {
                     .literal => |txt| allocator.free(txt),
-                    .star, .question_mark => {},
+                    .asterisk, .question_mark => {},
                 }
             }
         };
@@ -114,7 +114,7 @@ const Parser = struct {
                         idx_start_literal = null;
                     }
                     idx += 1;
-                    try parts.append(.star);
+                    try parts.append(.asterisk);
                 },
 
                 '?' => {
@@ -242,34 +242,34 @@ const ParserTests = struct {
         try t.expectEqual(5, rules.items.len);
 
         try t.expectEqualDeep(&[_]Part{
-            .star,
+            .asterisk,
             .{ .literal = "file_a.txt" },
         }, rules.items[0].parts);
 
         try t.expectEqualDeep(&[_]Part{
             .{ .literal = "file_" },
-            .star,
+            .asterisk,
             .{ .literal = ".txt" },
         }, rules.items[1].parts);
 
         try t.expectEqualDeep(&[_]Part{
             .{ .literal = "file_a." },
-            .star,
+            .asterisk,
         }, rules.items[2].parts);
 
         try t.expectEqualDeep(&[_]Part{
             .{ .literal = "file_" },
-            .star,
+            .asterisk,
             .{ .literal = "." },
-            .star,
+            .asterisk,
         }, rules.items[3].parts);
 
         try t.expectEqualDeep(&[_]Part{
-            .star,
+            .asterisk,
             .{ .literal = "file_" },
-            .star,
+            .asterisk,
             .{ .literal = "." },
-            .star,
+            .asterisk,
         }, rules.items[4].parts);
     }
 
