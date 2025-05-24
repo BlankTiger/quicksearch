@@ -334,6 +334,37 @@ const ParserTests = struct {
         }, rules.items[0].parts);
     }
 
+    test "parsing **" {
+        const p: Parser = .init(t.allocator);
+        defer p.deinit();
+        const rules = try p.parse(
+            \\src/**/*.zig
+            \\**/foo
+            \\abc/**
+        );
+        defer rules.deinit();
+
+        try t.expectEqual(3, rules.items.len);
+
+        try t.expectEqualDeep(&[_]Part{
+            .{ .literal = "src/" },
+            .double_asterisk,
+            .{ .literal = "/" },
+            .asterisk,
+            .{ .literal = ".zig" },
+        }, rules.items[0].parts);
+
+        try t.expectEqualDeep(&[_]Part{
+            .double_asterisk,
+            .{ .literal = "/foo" },
+        }, rules.items[1].parts);
+
+        try t.expectEqualDeep(&[_]Part{
+            .{ .literal = "abc/" },
+            .double_asterisk,
+        }, rules.items[2].parts);
+    }
+
     const t = std.testing;
 };
 
