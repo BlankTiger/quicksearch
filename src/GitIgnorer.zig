@@ -34,12 +34,13 @@ const Rules = struct {
         const Part = union(enum) {
             literal: []const u8,
             asterisk: void,
+            double_asterisk: void,
             question_mark: void,
 
             inline fn deinit(self: Part, allocator: std.mem.Allocator) void {
                 switch (self) {
                     .literal => |txt| allocator.free(txt),
-                    .asterisk, .question_mark => {},
+                    .asterisk, .double_asterisk, .question_mark => {},
                 }
             }
         };
@@ -113,8 +114,13 @@ const Parser = struct {
                         try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx]) });
                         idx_start_literal = null;
                     }
-                    idx += 1;
-                    try parts.append(.asterisk);
+                    if (line.len > idx + 1 and line[idx + 1] == '*') {
+                        idx += 2;
+                        try parts.append(.double_asterisk);
+                    } else {
+                        idx += 1;
+                        try parts.append(.asterisk);
+                    }
                 },
 
                 '?' => {
@@ -147,7 +153,6 @@ const Parser = struct {
         };
     }
 };
-
 
 test {
     _ = ParserTests;
