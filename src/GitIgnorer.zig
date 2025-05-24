@@ -307,6 +307,23 @@ const ParserTests = struct {
         }, rules.items[1].parts);
     }
 
+    test "parsing ?" {
+        const p: Parser = .init(t.allocator);
+        defer p.deinit();
+        const rules = try p.parse(
+            \\file_?.txt
+        );
+        defer rules.deinit();
+
+        try t.expectEqual(1, rules.items.len);
+
+        try t.expectEqualDeep(&[_]Part{
+            .{ .literal = "file_" },
+            .question_mark,
+            .{ .literal = ".txt" },
+        }, rules.items[0].parts);
+    }
+
     const t = std.testing;
 };
 
