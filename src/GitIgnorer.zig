@@ -35,20 +35,25 @@ const Parser = struct {
 
         var line_iter = std.mem.splitScalar(u8, content, '\n');
         while (line_iter.next()) |line| {
-            if (std.mem.eql(u8, line, "")) continue;
-            if (std.mem.startsWith(u8, line, "#")) continue;
-
-            var parts: std.ArrayList(Part) = .init(list.allocator);
-            errdefer parts.deinit();
-
-            try parts.append(.{ .literal = try list.allocator.dupe(u8, line) });
-
-            try list.append(.{
-                .parts = try parts.toOwnedSlice(),
-            });
+            if (try parse_rule(list.allocator, line)) |rule| {
+                try list.append(rule);
+            }
         }
 
         return .init(list.allocator, try list.toOwnedSlice());
+    }
+
+    fn parse_rule(allocator: std.mem.Allocator, line: []const u8) !?Rule {
+        if (std.mem.eql(u8, line, "")) return null;
+        if (std.mem.startsWith(u8, line, "#")) return null;
+
+        var parts: std.ArrayList(Part) = .init(allocator);
+        errdefer parts.deinit();
+
+        try parts.append(.{ .literal = try allocator.dupe(u8, line) });
+        return .{
+            .parts = try parts.toOwnedSlice(),
+        };
     }
 };
 
@@ -161,6 +166,16 @@ const Tests = struct {
         try t.expectEqual(1, rules.items[0].parts.len);
         try t.expectEqualStrings("file_a.txt", rules.items[0].parts[0].literal);
     }
+
+    // test "parser can parse * patterns" {
+    //     const p: Parser = .init(t.allocator);
+    //     defer p.deinit();
+    //     const rules = try p.parse(
+    //         \\*file_a.txt
+    //         \\
+    //     );
+    // }
+
     const t = std.testing;
 };
 
