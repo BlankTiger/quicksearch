@@ -28,7 +28,10 @@ const Parser = struct {
         var list: std.ArrayList(Rule) = .init(self.allocator);
         errdefer list.deinit();
 
-        try list.append(.{ .literal = try list.allocator.dupe(u8, content) });
+        var line_iter = std.mem.splitScalar(u8, content, '\n');
+        while (line_iter.next()) |line| {
+            try list.append(.{ .literal = try list.allocator.dupe(u8, line) });
+        }
 
         return .init(list.allocator, try list.toOwnedSlice());
     }
@@ -84,6 +87,20 @@ const Tests = struct{
 
         try t.expectEqual(1, rules.items.len);
         try t.expectEqualStrings("file.txt", rules.items[0].literal);
+    }
+
+    test "parser can produce many simple file rules" {
+        const p: Parser = .init(t.allocator);
+        defer p.deinit();
+        const rules = try p.parse(
+            \\file_a.txt
+            \\file_b.txt
+        );
+        defer rules.deinit();
+
+        try t.expectEqual(2, rules.items.len);
+        try t.expectEqualStrings("file_a.txt", rules.items[0].literal);
+        try t.expectEqualStrings("file_b.txt", rules.items[1].literal);
     }
 
     const t = std.testing;
