@@ -199,12 +199,15 @@ const ParserTests = struct {
             \\file_a.txt
             \\# file_b.txt
             \\#file_b.txt
+            \\\#file_b.txt
         );
         defer rules.deinit();
 
-        try t.expectEqual(1, rules.items.len);
+        try t.expectEqual(2, rules.items.len);
         try t.expectEqual(1, rules.items[0].parts.len);
+        try t.expectEqual(1, rules.items[1].parts.len);
         try t.expectEqualStrings("file_a.txt", rules.items[0].parts[0].literal);
+        try t.expectEqualStrings("#file_b.txt", rules.items[1].parts[0].literal);
     }
 
     const Part = Rules.Rule.Part;
