@@ -32,13 +32,14 @@ const Rules = struct {
         is_for_dirs: bool = false,
 
         const Part = union(enum) {
-            star: void,
             literal: []const u8,
+            star: void,
+            question_mark: void,
 
             inline fn deinit(self: Part, allocator: std.mem.Allocator) void {
                 switch (self) {
                     .literal => |txt| allocator.free(txt),
-                    .star => {},
+                    .star, .question_mark => {},
                 }
             }
         };
@@ -114,6 +115,15 @@ const Parser = struct {
                     }
                     idx += 1;
                     try parts.append(.star);
+                },
+
+                '?' => {
+                    if (idx_start_literal) |idx_start| {
+                        try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx]) });
+                        idx_start_literal = null;
+                    }
+                    idx += 1;
+                    try parts.append(.question_mark);
                 },
 
                 else => {
