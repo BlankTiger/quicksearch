@@ -46,12 +46,20 @@ const Parser = struct {
     fn parse_rule(allocator: std.mem.Allocator, line: []const u8) !?Rule {
         if (std.mem.eql(u8, line, "")) return null;
         if (std.mem.startsWith(u8, line, "#")) return null;
+        std.debug.assert(line.len > 0);
 
         var parts: std.ArrayList(Part) = .init(allocator);
         errdefer parts.deinit();
 
         var idx: usize = 0;
         var idx_start_literal: ?usize = null;
+        var is_negated: bool = false;
+        if (line[idx] == '!') {
+            is_negated = true;
+            idx = 1;
+        } else if (line.len > 1 and line[0] == '\\' and line[1] == '!') {
+            idx = 1;
+        }
 
         while (idx < line.len) {
             const ch = line[idx];
@@ -81,6 +89,7 @@ const Parser = struct {
 
         return .{
             .parts = try parts.toOwnedSlice(),
+            .is_negated = is_negated,
         };
     }
 };
@@ -102,8 +111,9 @@ const Rules = struct {
         self.allocator.free(self.items);
     }
 
-    const Rule = union(enum) {
+    const Rule = struct {
         parts: []Part,
+        is_negated: bool = false,
 
         const Part = union(enum) {
             star: void,
