@@ -9,6 +9,47 @@ allocator: std.mem.Allocator,
 const GitIgnorer = @This();
 const Cache = std.StringHashMap(Rules);
 
+const Rules = struct {
+    items: []const Rule,
+    allocator: std.mem.Allocator,
+
+    /// must be the same `allocator`, that allocated the `rules`
+    pub fn init(allocator: std.mem.Allocator, rules: []const Rule) Rules {
+        return .{
+            .allocator = allocator,
+            .items = rules,
+        };
+    }
+
+    pub fn deinit(self: Rules) void {
+        for (self.items) |rule| rule.deinit(self.allocator);
+        self.allocator.free(self.items);
+    }
+
+    const Rule = struct {
+        parts: []Part,
+        is_negated: bool = false,
+        is_for_dirs: bool = false,
+
+        const Part = union(enum) {
+            star: void,
+            literal: []const u8,
+
+            inline fn deinit(self: Part, allocator: std.mem.Allocator) void {
+                switch (self) {
+                    .literal => |txt| allocator.free(txt),
+                    .star => {},
+                }
+            }
+        };
+
+        pub fn deinit(self: Rule, allocator: std.mem.Allocator) void {
+            for (self.parts) |part| part.deinit(allocator);
+            allocator.free(self.parts);
+        }
+    };
+};
+
 const Parser = struct {
     allocator: std.mem.Allocator,
 
@@ -96,45 +137,6 @@ const Parser = struct {
     }
 };
 
-const Rules = struct {
-    items: []const Rule,
-    allocator: std.mem.Allocator,
-
-    /// must be the same `allocator`, that allocated the `rules`
-    pub fn init(allocator: std.mem.Allocator, rules: []const Rule) Rules {
-        return .{
-            .allocator = allocator,
-            .items = rules,
-        };
-    }
-
-    pub fn deinit(self: Rules) void {
-        for (self.items) |rule| rule.deinit(self.allocator);
-        self.allocator.free(self.items);
-    }
-
-    const Rule = struct {
-        parts: []Part,
-        is_negated: bool = false,
-
-        const Part = union(enum) {
-            star: void,
-            literal: []const u8,
-
-            inline fn deinit(self: Part, allocator: std.mem.Allocator) void {
-                switch (self) {
-                    .literal => |txt| allocator.free(txt),
-                    .star => {},
-                }
-            }
-        };
-
-        pub fn deinit(self: Rule, allocator: std.mem.Allocator) void {
-            for (self.parts) |part| part.deinit(allocator);
-            allocator.free(self.parts);
-        }
-    };
-};
 
 test {
     _ = ParserTests;
