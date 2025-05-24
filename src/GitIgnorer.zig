@@ -125,10 +125,10 @@ const Rules = struct {
 };
 
 test {
-    _ = Tests;
+    _ = ParserTests;
 }
 
-const Tests = struct {
+const ParserTests = struct {
     test "parser can produce rules from provided text" {
         const p: Parser = .init(t.allocator);
         defer p.deinit();
