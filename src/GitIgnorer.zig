@@ -59,6 +59,8 @@ const Parser = struct {
             idx = 1;
         } else if (line.len > 1 and line[0] == '\\' and line[1] == '!') {
             idx = 1;
+        } else if (line.len > 1 and line[0] == '\\' and line[1] == '#') {
+            idx = 1;
         }
 
         while (idx < line.len) {
