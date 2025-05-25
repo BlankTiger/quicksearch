@@ -92,7 +92,7 @@ const Parser = struct {
         var list: std.ArrayList(Rule) = .init(self.allocator);
         errdefer list.deinit();
 
-        var line_iter = std.mem.splitScalar(u8, content, '\n');
+        var line_iter = std.mem.splitBackwardsScalar(u8, content, '\n');
         while (line_iter.next()) |line| {
             if (try parse_rule(list.allocator, line)) |rule| {
                 try list.append(rule);
@@ -271,8 +271,8 @@ const ParserTests = struct {
         try t.expectEqual(2, rules.items.len);
         try t.expectEqual(1, rules.items[0].parts.len);
         try t.expectEqual(1, rules.items[1].parts.len);
-        try t.expectEqualStrings("file_a.txt", rules.items[0].parts[0].literal);
-        try t.expectEqualStrings("file_b.txt", rules.items[1].parts[0].literal);
+        try t.expectEqualStrings("file_b.txt", rules.items[0].parts[0].literal);
+        try t.expectEqualStrings("file_a.txt", rules.items[1].parts[0].literal);
     }
 
     test "parser ignores empty lines" {
@@ -288,8 +288,8 @@ const ParserTests = struct {
         try t.expectEqual(2, rules.items.len);
         try t.expectEqual(1, rules.items[0].parts.len);
         try t.expectEqual(1, rules.items[1].parts.len);
-        try t.expectEqualStrings("file_a.txt", rules.items[0].parts[0].literal);
-        try t.expectEqualStrings("file_b.txt", rules.items[1].parts[0].literal);
+        try t.expectEqualStrings("file_b.txt", rules.items[0].parts[0].literal);
+        try t.expectEqualStrings("file_a.txt", rules.items[1].parts[0].literal);
     }
 
     test "parser ignores commented lines" {
@@ -306,8 +306,8 @@ const ParserTests = struct {
         try t.expectEqual(2, rules.items.len);
         try t.expectEqual(1, rules.items[0].parts.len);
         try t.expectEqual(1, rules.items[1].parts.len);
-        try t.expectEqualStrings("file_a.txt", rules.items[0].parts[0].literal);
-        try t.expectEqualStrings("#file_b.txt", rules.items[1].parts[0].literal);
+        try t.expectEqualStrings("#file_b.txt", rules.items[0].parts[0].literal);
+        try t.expectEqualStrings("file_a.txt", rules.items[1].parts[0].literal);
     }
 
     const RegexPart = Rules.RegexPart;
@@ -331,13 +331,13 @@ const ParserTests = struct {
         try t.expectEqualDeep(&[_]RegexPart{
             .asterisk,
             .{ .literal = "file_a.txt" },
-        }, rules.items[0].parts);
+        }, rules.items[4].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_" },
             .asterisk,
             .{ .literal = ".txt" },
-        }, rules.items[1].parts);
+        }, rules.items[3].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_a." },
@@ -349,7 +349,7 @@ const ParserTests = struct {
             .asterisk,
             .{ .literal = "." },
             .asterisk,
-        }, rules.items[3].parts);
+        }, rules.items[1].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .asterisk,
@@ -357,7 +357,7 @@ const ParserTests = struct {
             .asterisk,
             .{ .literal = "." },
             .asterisk,
-        }, rules.items[4].parts);
+        }, rules.items[0].parts);
     }
 
     test "parse negation" {
@@ -372,18 +372,18 @@ const ParserTests = struct {
 
         try t.expectEqual(3, rules.items.len);
 
-        try t.expect(rules.items[0].is_negated);
-        try t.expectEqualDeep(&[_]RegexPart{.{ .literal = "file_a.txt" }}, rules.items[0].parts);
+        try t.expect(rules.items[2].is_negated);
+        try t.expectEqualDeep(&[_]RegexPart{.{ .literal = "file_a.txt" }}, rules.items[2].parts);
 
         try t.expect(!rules.items[1].is_negated);
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "!file_b.txt" },
         }, rules.items[1].parts);
 
-        try t.expect(!rules.items[2].is_negated);
+        try t.expect(!rules.items[0].is_negated);
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "!file_!.txt" },
-        }, rules.items[2].parts);
+        }, rules.items[0].parts);
     }
 
     test "rules store if they are matching directories or not" {
@@ -397,11 +397,11 @@ const ParserTests = struct {
 
         try t.expectEqual(2, rules.items.len);
 
-        try t.expect(!rules.items[0].is_for_dirs);
-        try t.expect(rules.items[1].is_for_dirs);
+        try t.expect(!rules.items[1].is_for_dirs);
+        try t.expect(rules.items[0].is_for_dirs);
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "dir/" },
-        }, rules.items[1].parts);
+        }, rules.items[0].parts);
     }
 
     test "parsing ?" {
@@ -439,7 +439,7 @@ const ParserTests = struct {
             .{ .literal = "/" },
             .asterisk,
             .{ .literal = ".zig" },
-        }, rules.items[0].parts);
+        }, rules.items[2].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .double_asterisk,
@@ -449,7 +449,7 @@ const ParserTests = struct {
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "abc/" },
             .double_asterisk,
-        }, rules.items[2].parts);
+        }, rules.items[0].parts);
     }
 
     test "parsing char ranges" {
@@ -477,7 +477,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[0].parts);
+        }, rules.items[6].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -489,7 +489,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[1].parts);
+        }, rules.items[5].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -501,7 +501,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[2].parts);
+        }, rules.items[4].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -525,7 +525,7 @@ const ParserTests = struct {
                 .is_negated = true,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[4].parts);
+        }, rules.items[2].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -537,7 +537,7 @@ const ParserTests = struct {
                 .is_negated = true,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[5].parts);
+        }, rules.items[1].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -550,7 +550,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[6].parts);
+        }, rules.items[0].parts);
     }
 
     const t = std.testing;
