@@ -7,7 +7,7 @@ parser: Parser,
 allocator: std.mem.Allocator,
 
 const GitIgnorer = @This();
-const Cache = std.StringHashMap(struct { rules: Rules, is_git_root: bool });
+const Cache = std.StringHashMap(struct { rules: Rules, in_git_repo_root: bool });
 
 const Rules = struct {
     list: std.ArrayList(Rule),
