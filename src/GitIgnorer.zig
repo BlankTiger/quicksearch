@@ -114,20 +114,26 @@ const Parser = struct {
     const Rule = Rules.Rule;
     const RegexPart = Rules.RegexPart;
 
-    pub fn parse(self: *const Self, content: []const u8) !Rules {
-        if (std.mem.eql(u8, content, "")) return .init_empty(self.allocator);
+    /// doesnt take ownership of `file`
+    pub fn parse_from(self: Self, file: std.fs.File) !Rules {
+        const content = try file.readToEndAlloc(self.allocator, comptime std.math.maxInt(usize));
+        defer self.allocator.free(content);
+        return self.parse(content);
+    }
 
-        var list: std.ArrayList(Rule) = .init(self.allocator);
-        errdefer list.deinit();
+    pub fn parse(self: Self, content: []const u8) !Rules {
+        var rules: Rules = .init(self.allocator);
+        errdefer rules.deinit();
+        if (std.mem.eql(u8, content, "")) return rules;
 
         var line_iter = std.mem.splitBackwardsScalar(u8, content, '\n');
         while (line_iter.next()) |line| {
-            if (try parse_rule(list.allocator, line)) |rule| {
-                try list.append(rule);
+            if (try parse_rule(self.allocator, line)) |rule| {
+                try rules.append(rule);
             }
         }
 
-        return .init(list);
+        return rules;
     }
 
     fn parse_rule(allocator: std.mem.Allocator, line: []const u8) !?Rule {
