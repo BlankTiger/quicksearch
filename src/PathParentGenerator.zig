@@ -68,4 +68,44 @@ test "absolute file" {
     }
 }
 
+test "relative dir" {
+    const expected: []const []const u8 = &.{
+        "./src/search/",
+        "./src/",
+        "./",
+    };
+
+    var gen: PathParentGenerator = .init("./src/search/searchdir/");
+    var actual: std.ArrayList([]const u8) = .init(std.testing.allocator);
+    defer actual.deinit();
+    while (gen.next()) |parent| {
+        try actual.append(parent);
+    }
+
+    try std.testing.expectEqual(expected.len, actual.items.len);
+    for (expected, actual.items) |e, a| {
+        try std.testing.expectEqualStrings(e, a);
+    }
+}
+
+test "absolute dir" {
+    const expected: []const []const u8 = &.{
+        "/src/search/",
+        "/src/",
+        "/",
+    };
+
+    var gen: PathParentGenerator = .init("/src/search/searchdir/");
+    var actual: std.ArrayList([]const u8) = .init(std.testing.allocator);
+    defer actual.deinit();
+    while (gen.next()) |parent| {
+        try actual.append(parent);
+    }
+
+    try std.testing.expectEqual(expected.len, actual.items.len);
+    for (expected, actual.items) |e, a| {
+        try std.testing.expectEqualStrings(e, a);
+    }
+}
+
 const std = @import("std");
