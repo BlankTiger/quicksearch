@@ -10,8 +10,7 @@ const GitIgnorer = @This();
 const Cache = std.StringHashMap(struct { rules: Rules, is_git_root: bool });
 
 const Rules = struct {
-    items: []const Rule,
-    allocator: std.mem.Allocator,
+    list: std.ArrayList(Rule),
 
     const Rule = struct {
         parts: []const RegexPart,
@@ -26,10 +25,10 @@ const Rules = struct {
 
     const RegexPart = union(enum) {
         literal: []const u8,
+        char_range: CharRange,
         asterisk: void,
         double_asterisk: void,
         question_mark: void,
-        char_range: CharRange,
 
         inline fn deinit(self: RegexPart, allocator: std.mem.Allocator) void {
             switch (self) {
@@ -54,18 +53,34 @@ const Rules = struct {
         range: struct { start: u8, end: u8 },
     };
 
-    /// must be the same `allocator`, that allocated the `rules`
-    pub fn init(allocator: std.mem.Allocator, rules: []const Rule) Rules {
+    pub fn init_empty(allocator: std.mem.Allocator) Rules {
         return .{
-            .allocator = allocator,
-            .items = rules,
+            .list = .init(allocator),
+        };
+    }
+
+    pub fn init(rules: std.ArrayList(Rule)) Rules {
+        return .{
+            .list = rules,
         };
     }
 
     pub fn deinit(self: Rules) void {
-        for (self.items) |rule| rule.deinit(self.allocator);
-        self.allocator.free(self.items);
+        for (self.items()) |rule| rule.deinit(self.list.allocator);
+        self.list.deinit();
     }
+
+    pub inline fn items(self: Rules) []const Rule {
+        return self.list.items;
+    }
+
+    pub inline fn len(self: Rules) usize {
+        return self.list.items.len;
+    }
+
+    // pub fn append(self: *Rules) !void {
+    //     self.items
+    // }
 };
 
 pub fn init() !GitIgnorer {
@@ -100,7 +115,7 @@ const Parser = struct {
     const RegexPart = Rules.RegexPart;
 
     pub fn parse(self: *const Self, content: []const u8) !Rules {
-        if (std.mem.eql(u8, content, "")) return .init(self.allocator, &.{});
+        if (std.mem.eql(u8, content, "")) return .init_empty(self.allocator);
 
         var list: std.ArrayList(Rule) = .init(self.allocator);
         errdefer list.deinit();
@@ -112,7 +127,7 @@ const Parser = struct {
             }
         }
 
-        return .init(list.allocator, try list.toOwnedSlice());
+        return .init(list);
     }
 
     fn parse_rule(allocator: std.mem.Allocator, line: []const u8) !?Rule {
@@ -258,7 +273,7 @@ const ParserTests = struct {
         const rules = try p.parse("");
         defer rules.deinit();
 
-        try t.expectEqual(0, rules.items.len);
+        try t.expectEqual(0, rules.len());
     }
 
     test "parser can produce a simple file rule" {
@@ -267,9 +282,9 @@ const ParserTests = struct {
         const rules = try p.parse("file.txt");
         defer rules.deinit();
 
-        try t.expectEqual(1, rules.items.len);
-        try t.expectEqual(1, rules.items[0].parts.len);
-        try t.expectEqualStrings("file.txt", rules.items[0].parts[0].literal);
+        try t.expectEqual(1, rules.len());
+        try t.expectEqual(1, rules.items()[0].parts.len);
+        try t.expectEqualStrings("file.txt", rules.items()[0].parts[0].literal);
     }
 
     test "parser can produce many simple file rules" {
@@ -281,11 +296,11 @@ const ParserTests = struct {
         );
         defer rules.deinit();
 
-        try t.expectEqual(2, rules.items.len);
-        try t.expectEqual(1, rules.items[0].parts.len);
-        try t.expectEqual(1, rules.items[1].parts.len);
-        try t.expectEqualStrings("file_b.txt", rules.items[0].parts[0].literal);
-        try t.expectEqualStrings("file_a.txt", rules.items[1].parts[0].literal);
+        try t.expectEqual(2, rules.len());
+        try t.expectEqual(1, rules.items()[0].parts.len);
+        try t.expectEqual(1, rules.items()[1].parts.len);
+        try t.expectEqualStrings("file_b.txt", rules.items()[0].parts[0].literal);
+        try t.expectEqualStrings("file_a.txt", rules.items()[1].parts[0].literal);
     }
 
     test "parser ignores empty lines" {
@@ -298,11 +313,11 @@ const ParserTests = struct {
         );
         defer rules.deinit();
 
-        try t.expectEqual(2, rules.items.len);
-        try t.expectEqual(1, rules.items[0].parts.len);
-        try t.expectEqual(1, rules.items[1].parts.len);
-        try t.expectEqualStrings("file_b.txt", rules.items[0].parts[0].literal);
-        try t.expectEqualStrings("file_a.txt", rules.items[1].parts[0].literal);
+        try t.expectEqual(2, rules.len());
+        try t.expectEqual(1, rules.items()[0].parts.len);
+        try t.expectEqual(1, rules.items()[1].parts.len);
+        try t.expectEqualStrings("file_b.txt", rules.items()[0].parts[0].literal);
+        try t.expectEqualStrings("file_a.txt", rules.items()[1].parts[0].literal);
     }
 
     test "parser ignores commented lines" {
@@ -316,11 +331,11 @@ const ParserTests = struct {
         );
         defer rules.deinit();
 
-        try t.expectEqual(2, rules.items.len);
-        try t.expectEqual(1, rules.items[0].parts.len);
-        try t.expectEqual(1, rules.items[1].parts.len);
-        try t.expectEqualStrings("#file_b.txt", rules.items[0].parts[0].literal);
-        try t.expectEqualStrings("file_a.txt", rules.items[1].parts[0].literal);
+        try t.expectEqual(2, rules.len());
+        try t.expectEqual(1, rules.items()[0].parts.len);
+        try t.expectEqual(1, rules.items()[1].parts.len);
+        try t.expectEqualStrings("#file_b.txt", rules.items()[0].parts[0].literal);
+        try t.expectEqualStrings("file_a.txt", rules.items()[1].parts[0].literal);
     }
 
     const RegexPart = Rules.RegexPart;
@@ -339,30 +354,30 @@ const ParserTests = struct {
         );
         defer rules.deinit();
 
-        try t.expectEqual(5, rules.items.len);
+        try t.expectEqual(5, rules.len());
 
         try t.expectEqualDeep(&[_]RegexPart{
             .asterisk,
             .{ .literal = "file_a.txt" },
-        }, rules.items[4].parts);
+        }, rules.items()[4].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_" },
             .asterisk,
             .{ .literal = ".txt" },
-        }, rules.items[3].parts);
+        }, rules.items()[3].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_a." },
             .asterisk,
-        }, rules.items[2].parts);
+        }, rules.items()[2].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_" },
             .asterisk,
             .{ .literal = "." },
             .asterisk,
-        }, rules.items[1].parts);
+        }, rules.items()[1].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .asterisk,
@@ -370,7 +385,7 @@ const ParserTests = struct {
             .asterisk,
             .{ .literal = "." },
             .asterisk,
-        }, rules.items[0].parts);
+        }, rules.items()[0].parts);
     }
 
     test "parse negation" {
@@ -383,20 +398,20 @@ const ParserTests = struct {
         );
         defer rules.deinit();
 
-        try t.expectEqual(3, rules.items.len);
+        try t.expectEqual(3, rules.len());
 
-        try t.expect(rules.items[2].is_negated);
-        try t.expectEqualDeep(&[_]RegexPart{.{ .literal = "file_a.txt" }}, rules.items[2].parts);
+        try t.expect(rules.items()[2].is_negated);
+        try t.expectEqualDeep(&[_]RegexPart{.{ .literal = "file_a.txt" }}, rules.items()[2].parts);
 
-        try t.expect(!rules.items[1].is_negated);
+        try t.expect(!rules.items()[1].is_negated);
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "!file_b.txt" },
-        }, rules.items[1].parts);
+        }, rules.items()[1].parts);
 
-        try t.expect(!rules.items[0].is_negated);
+        try t.expect(!rules.items()[0].is_negated);
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "!file_!.txt" },
-        }, rules.items[0].parts);
+        }, rules.items()[0].parts);
     }
 
     test "rules store if they are matching directories or not" {
@@ -408,13 +423,13 @@ const ParserTests = struct {
         );
         defer rules.deinit();
 
-        try t.expectEqual(2, rules.items.len);
+        try t.expectEqual(2, rules.len());
 
-        try t.expect(!rules.items[1].is_for_dirs);
-        try t.expect(rules.items[0].is_for_dirs);
+        try t.expect(!rules.items()[1].is_for_dirs);
+        try t.expect(rules.items()[0].is_for_dirs);
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "dir/" },
-        }, rules.items[0].parts);
+        }, rules.items()[0].parts);
     }
 
     test "parsing ?" {
@@ -425,13 +440,13 @@ const ParserTests = struct {
         );
         defer rules.deinit();
 
-        try t.expectEqual(1, rules.items.len);
+        try t.expectEqual(1, rules.len());
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_" },
             .question_mark,
             .{ .literal = ".txt" },
-        }, rules.items[0].parts);
+        }, rules.items()[0].parts);
     }
 
     test "parsing **" {
@@ -444,7 +459,7 @@ const ParserTests = struct {
         );
         defer rules.deinit();
 
-        try t.expectEqual(3, rules.items.len);
+        try t.expectEqual(3, rules.len());
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "src/" },
@@ -452,17 +467,17 @@ const ParserTests = struct {
             .{ .literal = "/" },
             .asterisk,
             .{ .literal = ".zig" },
-        }, rules.items[2].parts);
+        }, rules.items()[2].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .double_asterisk,
             .{ .literal = "/foo" },
-        }, rules.items[1].parts);
+        }, rules.items()[1].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "abc/" },
             .double_asterisk,
-        }, rules.items[0].parts);
+        }, rules.items()[0].parts);
     }
 
     test "parsing char ranges" {
@@ -479,7 +494,7 @@ const ParserTests = struct {
         );
         defer rules.deinit();
 
-        try t.expectEqual(7, rules.items.len);
+        try t.expectEqual(7, rules.len());
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_" },
@@ -490,7 +505,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[6].parts);
+        }, rules.items()[6].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -502,7 +517,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[5].parts);
+        }, rules.items()[5].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -514,7 +529,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[4].parts);
+        }, rules.items()[4].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -526,7 +541,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[3].parts);
+        }, rules.items()[3].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -538,7 +553,7 @@ const ParserTests = struct {
                 .is_negated = true,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[2].parts);
+        }, rules.items()[2].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -550,7 +565,7 @@ const ParserTests = struct {
                 .is_negated = true,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[1].parts);
+        }, rules.items()[1].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -563,7 +578,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items[0].parts);
+        }, rules.items()[0].parts);
     }
 
     const t = std.testing;
