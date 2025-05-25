@@ -231,6 +231,8 @@ const ParserTests = struct {
     }
 
     const RegexPart = Rules.RegexPart;
+    const CharRange = Rules.CharRange;
+    const Range = Rules.Range;
 
     test "parser can parse * patterns" {
         const p: Parser = .init(t.allocator);
@@ -368,6 +370,107 @@ const ParserTests = struct {
             .{ .literal = "abc/" },
             .double_asterisk,
         }, rules.items[2].parts);
+    }
+
+    test "parsing char ranges" {
+        const p: Parser = .init(t.allocator);
+        defer p.deinit();
+        const rules = try p.parse(
+            \\file_[a-b].txt
+            \\[a-zA-Z0-9].txt
+            \\[a\-z].txt
+            \\[xyz].txt
+            \\[!xyz].txt
+            \\[^xyz].txt
+            \\[xyzA-Z].txt
+        );
+        defer rules.deinit();
+
+        try t.expectEqual(7, rules.items.len);
+
+        try t.expectEqualDeep(&[_]RegexPart{
+            .{ .literal = "file_" },
+            .{ .char_range = .{
+                .ranges = &[_]Range{
+                    .{ .range = .{ .start = 'a', .end = 'b' } },
+                },
+                .is_negated = false,
+            } },
+            .{ .literal = ".txt" },
+        }, rules.items[0].parts);
+
+        try t.expectEqualDeep(&[_]RegexPart{
+            .{ .char_range = .{
+                .ranges = &[_]Range{
+                    .{ .range = .{ .start = 'a', .end = 'z' } },
+                    .{ .range = .{ .start = 'A', .end = 'Z' } },
+                    .{ .range = .{ .start = '0', .end = '9' } },
+                },
+                .is_negated = false,
+            } },
+            .{ .literal = ".txt" },
+        }, rules.items[1].parts);
+
+        try t.expectEqualDeep(&[_]RegexPart{
+            .{ .char_range = .{
+                .ranges = &[_]Range{
+                    .{ .single = 'a' },
+                    .{ .single = '-' },
+                    .{ .single = 'z' },
+                },
+                .is_negated = false,
+            } },
+            .{ .literal = ".txt" },
+        }, rules.items[2].parts);
+
+        try t.expectEqualDeep(&[_]RegexPart{
+            .{ .char_range = .{
+                .ranges = &[_]Range{
+                    .{ .single = 'x' },
+                    .{ .single = 'y' },
+                    .{ .single = 'z' },
+                },
+                .is_negated = false,
+            } },
+            .{ .literal = ".txt" },
+        }, rules.items[3].parts);
+
+        try t.expectEqualDeep(&[_]RegexPart{
+            .{ .char_range = .{
+                .ranges = &[_]Range{
+                    .{ .single = 'x' },
+                    .{ .single = 'y' },
+                    .{ .single = 'z' },
+                },
+                .is_negated = true,
+            } },
+            .{ .literal = ".txt" },
+        }, rules.items[4].parts);
+
+        try t.expectEqualDeep(&[_]RegexPart{
+            .{ .char_range = .{
+                .ranges = &[_]Range{
+                    .{ .single = 'x' },
+                    .{ .single = 'y' },
+                    .{ .single = 'z' },
+                },
+                .is_negated = true,
+            } },
+            .{ .literal = ".txt" },
+        }, rules.items[5].parts);
+
+        try t.expectEqualDeep(&[_]RegexPart{
+            .{ .char_range = .{
+                .ranges = &[_]Range{
+                    .{ .single = 'x' },
+                    .{ .single = 'y' },
+                    .{ .single = 'z' },
+                    .{ .range = .{ .start = 'A', .end = 'Z' } },
+                },
+                .is_negated = false,
+            } },
+            .{ .literal = ".txt" },
+        }, rules.items[6].parts);
     }
 
     const t = std.testing;
