@@ -53,15 +53,9 @@ const Rules = struct {
         range: struct { start: u8, end: u8 },
     };
 
-    pub fn init_empty(allocator: std.mem.Allocator) Rules {
+    pub fn init(allocator: std.mem.Allocator) Rules {
         return .{
             .list = .init(allocator),
-        };
-    }
-
-    pub fn init(rules: std.ArrayList(Rule)) Rules {
-        return .{
-            .list = rules,
         };
     }
 
