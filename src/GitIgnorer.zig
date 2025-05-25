@@ -14,7 +14,7 @@ const Rules = struct {
     allocator: std.mem.Allocator,
 
     const Rule = struct {
-        parts: []RegexPart,
+        parts: []const RegexPart,
         is_negated: bool,
         is_for_dirs: bool,
 
@@ -29,13 +29,29 @@ const Rules = struct {
         asterisk: void,
         double_asterisk: void,
         question_mark: void,
+        char_range: CharRange,
 
         inline fn deinit(self: RegexPart, allocator: std.mem.Allocator) void {
             switch (self) {
                 .literal => |txt| allocator.free(txt),
+                .char_range => |range| range.deinit(allocator),
                 .asterisk, .double_asterisk, .question_mark => {},
             }
         }
+    };
+
+    const CharRange = struct {
+        ranges: []const Range,
+        is_negated: bool,
+
+        pub fn deinit(self: CharRange, allocator: std.mem.Allocator) void {
+            allocator.free(self.ranges);
+        }
+    };
+
+    const Range = union(enum) {
+        single: u8,
+        range: struct { start: u8, end: u8 },
     };
 
     /// must be the same `allocator`, that allocated the `rules`
@@ -130,6 +146,70 @@ const Parser = struct {
                     }
                     idx += 1;
                     try parts.append(.question_mark);
+                },
+
+                '[' => {
+                    if (idx_start_literal) |idx_start| {
+                        try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx]) });
+                        idx_start_literal = null;
+                    }
+
+                    idx += 1;
+
+                    const range_negated = line[idx] == '!' or line[idx] == '^';
+                    if (range_negated) idx += 1;
+
+                    var ranges: std.ArrayList(Rules.Range) = .init(allocator);
+                    errdefer ranges.deinit();
+                    {
+                        var characters: std.ArrayList(u8) = .init(allocator);
+                        defer characters.deinit();
+                        while (true) {
+                            const new_ch = line[idx];
+                            switch (new_ch) {
+                                ']' => {
+                                    idx += 1;
+                                    for (characters.items) |_ch| {
+                                        try ranges.append(.{ .single = _ch });
+                                    }
+                                    break;
+                                },
+
+                                '-' => {
+                                    idx += 1;
+
+                                    defer characters.clearRetainingCapacity();
+                                    const chars_len = characters.items.len;
+                                    for (0..characters.items.len - 1) |ch_idx| {
+                                        try ranges.append(.{ .single = characters.items[ch_idx] });
+                                    }
+
+                                    try ranges.append(.{ .range = .{
+                                        .start = characters.items[chars_len - 1],
+                                        .end = line[idx],
+                                    } });
+
+                                    idx += 1;
+                                },
+
+                                else => {
+                                    idx += 1;
+
+                                    if (new_ch == '\\' and line[idx] == '-') {
+                                        try characters.append(line[idx]);
+                                        idx += 1;
+                                    } else {
+                                        try characters.append(new_ch);
+                                    }
+                                },
+                            }
+                        }
+                    }
+
+                    try parts.append(.{ .char_range = .{
+                        .ranges = try ranges.toOwnedSlice(),
+                        .is_negated = range_negated,
+                    } });
                 },
 
                 else => {
