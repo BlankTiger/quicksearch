@@ -268,6 +268,23 @@ const Parser = struct {
     }
 };
 
+pub fn init(allocator: std.mem.Allocator) GitIgnorer {
+    return .{
+        .cache = .init(allocator),
+        .parser = .init(allocator),
+        .allocator = allocator,
+    };
+}
+
+pub fn deinit(self: *GitIgnorer) void {
+    var iter = self.cache.iterator();
+    while (iter.next()) |e| {
+        self.allocator.free(e.key_ptr.*);
+        // e.value_ptr.*.rules.deinit();
+    }
+    self.cache.deinit();
+    self.parser.deinit();
+}
 test {
     _ = ParserTests;
     _ = MatchingTests;
