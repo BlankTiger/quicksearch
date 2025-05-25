@@ -13,6 +13,31 @@ const Rules = struct {
     items: []const Rule,
     allocator: std.mem.Allocator,
 
+    const Rule = struct {
+        parts: []RegexPart,
+        is_negated: bool,
+        is_for_dirs: bool,
+
+        pub fn deinit(self: Rule, allocator: std.mem.Allocator) void {
+            for (self.parts) |part| part.deinit(allocator);
+            allocator.free(self.parts);
+        }
+    };
+
+    const RegexPart = union(enum) {
+        literal: []const u8,
+        asterisk: void,
+        double_asterisk: void,
+        question_mark: void,
+
+        inline fn deinit(self: RegexPart, allocator: std.mem.Allocator) void {
+            switch (self) {
+                .literal => |txt| allocator.free(txt),
+                .asterisk, .double_asterisk, .question_mark => {},
+            }
+        }
+    };
+
     /// must be the same `allocator`, that allocated the `rules`
     pub fn init(allocator: std.mem.Allocator, rules: []const Rule) Rules {
         return .{
@@ -25,31 +50,6 @@ const Rules = struct {
         for (self.items) |rule| rule.deinit(self.allocator);
         self.allocator.free(self.items);
     }
-
-    const Rule = struct {
-        parts: []Part,
-        is_negated: bool = false,
-        is_for_dirs: bool = false,
-
-        const Part = union(enum) {
-            literal: []const u8,
-            asterisk: void,
-            double_asterisk: void,
-            question_mark: void,
-
-            inline fn deinit(self: Part, allocator: std.mem.Allocator) void {
-                switch (self) {
-                    .literal => |txt| allocator.free(txt),
-                    .asterisk, .double_asterisk, .question_mark => {},
-                }
-            }
-        };
-
-        pub fn deinit(self: Rule, allocator: std.mem.Allocator) void {
-            for (self.parts) |part| part.deinit(allocator);
-            allocator.free(self.parts);
-        }
-    };
 };
 
 const Parser = struct {
@@ -68,7 +68,7 @@ const Parser = struct {
     }
 
     const Rule = Rules.Rule;
-    const Part = Rule.Part;
+    const RegexPart = Rules.RegexPart;
 
     pub fn parse(self: *const Self, content: []const u8) !Rules {
         if (std.mem.eql(u8, content, "")) return .init(self.allocator, &.{});
@@ -91,7 +91,7 @@ const Parser = struct {
         if (std.mem.startsWith(u8, line, "#")) return null;
         std.debug.assert(line.len > 0);
 
-        var parts: std.ArrayList(Part) = .init(allocator);
+        var parts: std.ArrayList(RegexPart) = .init(allocator);
         errdefer parts.deinit();
 
         var idx: usize = 0;
@@ -230,7 +230,7 @@ const ParserTests = struct {
         try t.expectEqualStrings("#file_b.txt", rules.items[1].parts[0].literal);
     }
 
-    const Part = Rules.Rule.Part;
+    const RegexPart = Rules.RegexPart;
 
     test "parser can parse * patterns" {
         const p: Parser = .init(t.allocator);
@@ -246,30 +246,30 @@ const ParserTests = struct {
 
         try t.expectEqual(5, rules.items.len);
 
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .asterisk,
             .{ .literal = "file_a.txt" },
         }, rules.items[0].parts);
 
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_" },
             .asterisk,
             .{ .literal = ".txt" },
         }, rules.items[1].parts);
 
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_a." },
             .asterisk,
         }, rules.items[2].parts);
 
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_" },
             .asterisk,
             .{ .literal = "." },
             .asterisk,
         }, rules.items[3].parts);
 
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .asterisk,
             .{ .literal = "file_" },
             .asterisk,
@@ -291,15 +291,15 @@ const ParserTests = struct {
         try t.expectEqual(3, rules.items.len);
 
         try t.expect(rules.items[0].is_negated);
-        try t.expectEqualDeep(&[_]Part{.{ .literal = "file_a.txt" }}, rules.items[0].parts);
+        try t.expectEqualDeep(&[_]RegexPart{.{ .literal = "file_a.txt" }}, rules.items[0].parts);
 
         try t.expect(!rules.items[1].is_negated);
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "!file_b.txt" },
         }, rules.items[1].parts);
 
         try t.expect(!rules.items[2].is_negated);
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "!file_!.txt" },
         }, rules.items[2].parts);
     }
@@ -317,7 +317,7 @@ const ParserTests = struct {
 
         try t.expect(!rules.items[0].is_for_dirs);
         try t.expect(rules.items[1].is_for_dirs);
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "dir/" },
         }, rules.items[1].parts);
     }
@@ -332,7 +332,7 @@ const ParserTests = struct {
 
         try t.expectEqual(1, rules.items.len);
 
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_" },
             .question_mark,
             .{ .literal = ".txt" },
@@ -351,7 +351,7 @@ const ParserTests = struct {
 
         try t.expectEqual(3, rules.items.len);
 
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "src/" },
             .double_asterisk,
             .{ .literal = "/" },
@@ -359,12 +359,12 @@ const ParserTests = struct {
             .{ .literal = ".zig" },
         }, rules.items[0].parts);
 
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .double_asterisk,
             .{ .literal = "/foo" },
         }, rules.items[1].parts);
 
-        try t.expectEqualDeep(&[_]Part{
+        try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "abc/" },
             .double_asterisk,
         }, rules.items[2].parts);
