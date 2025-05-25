@@ -3,18 +3,15 @@ const PathParentGenerator = @This();
 path: []const u8,
 path_part: []const u8,
 idx_parent: usize = 0,
-absolute: bool = false,
 
 pub fn init(path: []const u8) PathParentGenerator {
     std.debug.assert(path.len > 2);
     std.debug.assert(std.mem.startsWith(u8, path, "/") or std.mem.startsWith(u8, path, "./"));
 
-    const absolute = std.mem.indexOfScalar(u8, path, '/').? == 0;
     return .{
         .path = path,
         .path_part = "",
         .idx_parent = 0,
-        .absolute = absolute,
     };
 }
 
