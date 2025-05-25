@@ -264,6 +264,7 @@ const Parser = struct {
 
 test {
     _ = ParserTests;
+    _ = MatchingTests;
 }
 
 const ParserTests = struct {
@@ -579,6 +580,22 @@ const ParserTests = struct {
             } },
             .{ .literal = ".txt" },
         }, rules.items()[0].parts);
+    }
+
+    const t = std.testing;
+};
+
+const MatchingTests = struct {
+    test "simple file match" {
+        var g: GitIgnorer = .init(t.allocator);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\file.txt
+        );
+        defer rules.deinit();
+
+        try t.expect(!g.is_excluded_with_rules("./src/search/search.zig", rules));
+        try t.expect(g.is_excluded_with_rules("file.txt", rules));
     }
 
     const t = std.testing;
