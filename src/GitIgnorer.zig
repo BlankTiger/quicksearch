@@ -272,6 +272,29 @@ pub fn deinit(self: *GitIgnorer) void {
     self.cache.deinit();
     self.parser.deinit();
 }
+// test "getting rules" {
+//     const t = std.testing;
+//     var g: GitIgnorer = .init(t.allocator);
+//     defer g.deinit();
+//
+//     const rules = try g.get_rules("./src/search/search.zig");
+//     defer rules.deinit();
+//
+//     for (rules.items()) |rule| {
+//         std.debug.print("rules: {}\n", .{rule});
+//         for (rule.parts) |part| {
+//             std.debug.print("\tpart: {}\n", .{part});
+//         }
+//     }
+//     std.debug.print("rule count: {d}\n", .{rules.len()});
+//
+//     const list: []const []const u8 = &.{ "./src/GitIgnorer.zig", "./src/search/search.zig" };
+//     for (list) |path| {
+//         const excluded = try g.is_excluded(path);
+//         std.debug.print("\t\t{s} excluded -> {s}\n", .{ path, excluded });
+//     }
+// }
+
 test {
     _ = ParserTests;
     _ = MatchingTests;
