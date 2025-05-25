@@ -18,20 +18,18 @@ pub fn init(path: []const u8) PathParentGenerator {
 pub fn next(self: *PathParentGenerator) ?[]const u8 {
     if (self.path_part.len == 0) return null;
 
-    const idx_prev = self.idx_parent;
-    const maybe_idx = std.mem.lastIndexOfScalar(u8, self.path[0..idx_prev-1], '/');
+    const maybe_idx = std.mem.lastIndexOfScalar(u8, self.path[0..self.idx_parent-1], '/');
     if (maybe_idx) |idx| {
         self.idx_parent = idx + 1;
         self.path_part = self.path[0..self.idx_parent];
-        return self.path[0..idx_prev];
+        return self.path[0..self.idx_parent];
     }
     self.path_part = "";
-    return self.path[0..idx_prev];
+    return null;
 }
 
-test "relative" {
+test "relative file" {
     const expected: []const []const u8 = &.{
-        "./src/search/search.zig",
         "./src/search/",
         "./src/",
         "./",
@@ -50,9 +48,8 @@ test "relative" {
     }
 }
 
-test "absolute" {
+test "absolute file" {
     const expected: []const []const u8 = &.{
-        "/src/search/search.zig",
         "/src/search/",
         "/src/",
         "/",
