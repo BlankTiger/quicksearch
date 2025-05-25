@@ -72,24 +72,17 @@ const Rules = struct {
         return self.list.items.len;
     }
 
-    // pub fn append(self: *Rules) !void {
-    //     self.items
-    // }
+    pub inline fn append(self: *Rules, rule: Rule) !void {
+        try self.list.append(rule);
+    }
+
+    pub inline fn append_slice(self: *Rules, rules: []const Rule) !void {
+        try self.list.appendSlice(rules);
+    }
+
+    }
 };
 
-pub fn init() !GitIgnorer {
-    return error.TODO;
-}
-
-pub fn deinit(self: *GitIgnorer) void {
-    var iter = self.cache.iterator();
-    while (iter.next()) |e| {
-        self.allocator.free(e.key_ptr.*);
-        e.value_ptr.*.rules.deinit();
-    }
-    self.cache.deinit();
-    self.parser.deinit();
-}
 const Parser = struct {
     allocator: std.mem.Allocator,
 
