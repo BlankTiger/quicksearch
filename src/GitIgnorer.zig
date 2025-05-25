@@ -7,7 +7,7 @@ parser: Parser,
 allocator: std.mem.Allocator,
 
 const GitIgnorer = @This();
-const Cache = std.StringHashMap(Rules);
+const Cache = std.StringHashMap(struct { rules: Rules, is_git_root: bool });
 
 const Rules = struct {
     items: []const Rule,
@@ -68,6 +68,19 @@ const Rules = struct {
     }
 };
 
+pub fn init() !GitIgnorer {
+    return error.TODO;
+}
+
+pub fn deinit(self: *GitIgnorer) void {
+    var iter = self.cache.iterator();
+    while (iter.next()) |e| {
+        self.allocator.free(e.key_ptr.*);
+        e.value_ptr.*.rules.deinit();
+    }
+    self.cache.deinit();
+    self.parser.deinit();
+}
 const Parser = struct {
     allocator: std.mem.Allocator,
 
