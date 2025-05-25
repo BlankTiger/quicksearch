@@ -2,7 +2,7 @@ const PathParentGenerator = @This();
 
 path: []const u8,
 path_part: []const u8,
-idx_parent: usize = 0,
+idx_parent: usize,
 
 pub fn init(path: []const u8) PathParentGenerator {
     std.debug.assert(path.len > 2);
@@ -10,32 +10,31 @@ pub fn init(path: []const u8) PathParentGenerator {
 
     return .{
         .path = path,
-        .path_part = "",
-        .idx_parent = 0,
+        .path_part = path,
+        .idx_parent = path.len,
     };
 }
 
 pub fn next(self: *PathParentGenerator) ?[]const u8 {
-    std.debug.assert(self.path_part.len <= self.path.len);
-    if (self.path_part.len == self.path.len) return null;
+    if (self.path_part.len == 0) return null;
 
-    const maybe_idx = std.mem.indexOfScalar(u8, self.path[self.idx_parent..], '/');
+    const idx_prev = self.idx_parent;
+    const maybe_idx = std.mem.lastIndexOfScalar(u8, self.path[0..idx_prev-1], '/');
     if (maybe_idx) |idx| {
-        const offset_idx_parent = idx + 1;
-        self.idx_parent += offset_idx_parent;
+        self.idx_parent = idx + 1;
         self.path_part = self.path[0..self.idx_parent];
-        return self.path_part;
+        return self.path[0..idx_prev];
     }
-    self.path_part = self.path;
-    return self.path;
+    self.path_part = "";
+    return self.path[0..idx_prev];
 }
 
 test "relative" {
     const expected: []const []const u8 = &.{
-        "./",
-        "./src/",
-        "./src/search/",
         "./src/search/search.zig",
+        "./src/search/",
+        "./src/",
+        "./",
     };
 
     var gen: PathParentGenerator = .init("./src/search/search.zig");
@@ -53,10 +52,10 @@ test "relative" {
 
 test "absolute" {
     const expected: []const []const u8 = &.{
-        "/",
-        "/src/",
-        "/src/search/",
         "/src/search/search.zig",
+        "/src/search/",
+        "/src/",
+        "/",
     };
 
     var gen: PathParentGenerator = .init("/src/search/search.zig");
