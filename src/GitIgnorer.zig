@@ -29,12 +29,13 @@ const Rules = struct {
         asterisk: void,
         double_asterisk: void,
         question_mark: void,
+        slash: void,
 
         inline fn deinit(self: RegexPart, allocator: std.mem.Allocator) void {
             switch (self) {
                 .literal => |txt| allocator.free(txt),
                 .char_range => |range| range.deinit(allocator),
-                .asterisk, .double_asterisk, .question_mark => {},
+                .asterisk, .double_asterisk, .question_mark, .slash => {},
             }
         }
     };
@@ -231,6 +232,15 @@ const Parser = struct {
                         .ranges = try ranges.toOwnedSlice(),
                         .is_negated = range_negated,
                     } });
+                },
+
+                '/' => {
+                    if (idx_start_literal) |idx_start| {
+                        try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx]) });
+                        idx_start_literal = null;
+                    }
+                    idx += 1;
+                    try parts.append(.slash);
                 },
 
                 else => {
