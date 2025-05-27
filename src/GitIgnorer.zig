@@ -462,7 +462,8 @@ const ParserTests = struct {
         try t.expect(!rules.items()[1].is_for_dirs);
         try t.expect(rules.items()[0].is_for_dirs);
         try t.expectEqualDeep(&[_]RegexPart{
-            .{ .literal = "dir/" },
+            .{ .literal = "dir" },
+            .slash,
         }, rules.items()[0].parts);
     }
 
@@ -496,20 +497,23 @@ const ParserTests = struct {
         try t.expectEqual(3, rules.len());
 
         try t.expectEqualDeep(&[_]RegexPart{
-            .{ .literal = "src/" },
+            .{ .literal = "src" },
+            .slash,
             .double_asterisk,
-            .{ .literal = "/" },
+            .slash,
             .asterisk,
             .{ .literal = ".zig" },
         }, rules.items()[2].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .double_asterisk,
-            .{ .literal = "/foo" },
+            .slash,
+            .{ .literal = "foo" },
         }, rules.items()[1].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
-            .{ .literal = "abc/" },
+            .{ .literal = "abc" },
+            .slash,
             .double_asterisk,
         }, rules.items()[0].parts);
     }
