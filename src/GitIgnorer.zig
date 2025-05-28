@@ -1027,8 +1027,49 @@ const MatchingTests = struct {
         try t.expect(!g.is_excluded_with_rules("filea.txt", rules));
         try t.expect(!g.is_excluded_with_rules("file10.txt", rules));
     }
+
+    test "directory patterns with trailing slash" {
+        var g: GitIgnorer = .init(t.allocator);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\node_modules/
+            \\build/
+            \\temp/
+        );
+        defer rules.deinit();
+
+        // Should match directories and their contents
+        try t.expect(g.is_excluded_with_rules("node_modules/", rules));
+        try t.expect(g.is_excluded_with_rules("node_modules/package.json", rules));
+        try t.expect(g.is_excluded_with_rules("./src/node_modules/lib.js", rules));
+        try t.expect(g.is_excluded_with_rules("build/", rules));
+        try t.expect(g.is_excluded_with_rules("build/output.bin", rules));
+
+        // Should not match files with same name
+        try t.expect(!g.is_excluded_with_rules("node_modules.txt", rules));
+        try t.expect(!g.is_excluded_with_rules("build.log", rules));
     }
 
+    test "leading slash patterns - root relative" {
+        var g: GitIgnorer = .init(t.allocator);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\/debug.log
+            \\/build
+            \\/config.json
+        );
+        defer rules.deinit();
+
+        // Should match only in root
+        try t.expect(g.is_excluded_with_rules("debug.log", rules));
+        try t.expect(g.is_excluded_with_rules("build", rules));
+        try t.expect(g.is_excluded_with_rules("config.json", rules));
+
+        // Should not match in subdirectories
+        try t.expect(!g.is_excluded_with_rules("./src/debug.log", rules));
+        try t.expect(!g.is_excluded_with_rules("./logs/debug.log", rules));
+        try t.expect(!g.is_excluded_with_rules("./tools/build", rules));
+    }
     const t = std.testing;
 };
 const std = @import("std");
