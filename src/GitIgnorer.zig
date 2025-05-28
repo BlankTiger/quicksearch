@@ -983,10 +983,31 @@ const MatchingTests = struct {
         try t.expect(g.is_excluded_with_rules("mydebugfile", rules));
         try t.expect(g.is_excluded_with_rules("app_debug_output.txt", rules));
     }
+
+    test "question mark wildcard" {
+        var g: GitIgnorer = .init(t.allocator);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\file?.txt
+            \\debug?.log
+        );
+        defer rules.deinit();
+
+        // file?.txt should match single character
+        try t.expect(g.is_excluded_with_rules("file1.txt", rules));
+        try t.expect(g.is_excluded_with_rules("filea.txt", rules));
+        try t.expect(!g.is_excluded_with_rules("file10.txt", rules));
+        try t.expect(!g.is_excluded_with_rules("file.txt", rules));
+
+        // debug?.log should match
+        try t.expect(g.is_excluded_with_rules("debug1.log", rules));
+        try t.expect(g.is_excluded_with_rules("debugx.log", rules));
+        try t.expect(!g.is_excluded_with_rules("debug.log", rules));
+        try t.expect(!g.is_excluded_with_rules("debug10.log", rules));
+    }
     }
 
     const t = std.testing;
 };
-
 const std = @import("std");
 const PathParentGenerator = @import("PathParentGenerator.zig");
