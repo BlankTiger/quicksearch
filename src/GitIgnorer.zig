@@ -8,6 +8,7 @@ allocator: std.mem.Allocator,
 
 const GitIgnorer = @This();
 const Cache = std.StringHashMap(struct { rules: Rules, in_git_repo_root: bool });
+const MAX_USIZE = std.math.maxInt(usize);
 
 const Rules = struct {
     list: std.ArrayList(Rule),
@@ -328,7 +329,7 @@ const Parser = struct {
 
     /// doesnt take ownership of `file`
     pub fn parse_from(self: Self, file: std.fs.File) !Rules {
-        const content = try file.readToEndAlloc(self.allocator, comptime std.math.maxInt(usize));
+        const content = try file.readToEndAlloc(self.allocator, MAX_USIZE);
         defer self.allocator.free(content);
         return self.parse(content);
     }
