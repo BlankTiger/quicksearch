@@ -201,7 +201,7 @@ const Rules = struct {
                                     const search_term = try std.fmt.allocPrint(alloc, "/{s}", .{txt});
                                     defer alloc.free(search_term);
 
-                                    const maybe_idx_slash = std.mem.indexOf(u8, part_path, search_term);
+                                    const maybe_idx_term = std.mem.indexOf(u8, part_path, search_term);
                                     if (maybe_idx_term) |idx_term| {
                                         idx += idx_term + 1;
                                         continue;
