@@ -16,10 +16,231 @@ const Rules = struct {
         parts: []const RegexPart,
         is_negated: bool,
         is_for_dirs: bool,
+        has_slashes: bool,
+        root_relative: bool,
 
         pub fn deinit(self: Rule, allocator: std.mem.Allocator) void {
             for (self.parts) |part| part.deinit(allocator);
             allocator.free(self.parts);
+        }
+
+        pub fn matches(self: Rule, path: []const u8) bool {
+            var idx: usize = 0;
+            // Handle root_relative patterns
+            if (self.root_relative) {
+                // Root relative patterns must match from the beginning of the path
+                // Don't skip to filename - match the full path from root
+                idx = 0;
+            } else {
+                // For non-root-relative patterns, use the existing logic
+                if (!self.has_slashes and !self.is_for_dirs) {
+                    if (std.mem.lastIndexOfScalar(u8, path, '/')) |idx_slash| {
+                        idx = idx_slash + 1;
+                    }
+                }
+            }
+
+            var skip: usize = 0;
+            for (self.parts, 0..) |p, idx_p| {
+                if (skip > 0) {
+                    skip -= 1;
+                    continue;
+                }
+
+                const part_path = path[idx..];
+
+                if (part_path.len == 0) return false;
+
+                switch (p) {
+                    .literal => |txt| {
+                        if (part_path.len < txt.len) return false;
+                        if (self.is_for_dirs) {
+                            const maybe_idx_literal = std.mem.indexOf(u8, part_path, txt);
+                            if (maybe_idx_literal) |idx_literal| {
+                                idx += idx_literal + txt.len;
+                                continue;
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            if (!std.mem.eql(u8, part_path[0..txt.len], txt)) return false;
+                            idx += txt.len;
+                        }
+                    },
+
+                    .char_range => |ch_range| {
+                        const ranges = ch_range.ranges;
+                        const char = part_path[0];
+                        var none_matched = true;
+
+                        for (ranges) |r| {
+                            switch (r) {
+                                .single => |ch| if (char == ch) {
+                                    none_matched = false;
+                                    break;
+                                },
+
+                                .range => |ran| if (char >= ran.start and char <= ran.end) {
+                                    none_matched = false;
+                                    break;
+                                },
+                            }
+                        }
+
+                        if (none_matched and !ch_range.is_negated) return false;
+
+                        idx += 1;
+                    },
+
+                    .question_mark => {
+                        if (part_path[0] == '/') return false;
+
+                        idx += 1;
+                    },
+
+                    .slash => {
+                        if (part_path[0] != '/') return false;
+
+                        idx += 1;
+                    },
+
+                    .asterisk => {
+                        if (idx_p + 1 < self.parts.len) {
+                            const next = self.parts[idx_p + 1];
+                            skip += 1;
+                            switch (next) {
+                                .literal => |txt| {
+                                    const maybe_idx_literal = std.mem.indexOf(u8, part_path, txt);
+                                    if (maybe_idx_literal) |idx_literal| {
+                                        if (std.mem.indexOfScalar(u8, part_path[0..idx_literal], '/') != null) {
+                                            return false;
+                                        }
+                                        idx += idx_literal + txt.len;
+                                        continue;
+                                    } else {
+                                        return false;
+                                    }
+                                },
+
+                                .char_range => |ch_range| {
+                                    const ranges = ch_range.ranges;
+                                    var found_at_offset: usize = MAX_USIZE;
+
+                                    for (ranges) |r| {
+                                        for (part_path, 0..) |path_ch, idx_path_ch| {
+                                            switch (r) {
+                                                .single => |ch| if (path_ch == ch) {
+                                                    found_at_offset = idx_path_ch;
+                                                    break;
+                                                },
+
+                                                .range => |ran| if (path_ch >= ran.start and path_ch <= ran.end) {
+                                                    found_at_offset = idx_path_ch;
+                                                    break;
+                                                },
+                                            }
+                                        }
+                                    }
+
+                                    if (found_at_offset == MAX_USIZE and !ch_range.is_negated) return false;
+
+                                    idx += found_at_offset;
+                                },
+
+                                // NOTE: this will go until the next slash or the end of the path
+                                .question_mark => {
+                                    if (idx_p + 2 < self.parts.len) {
+                                        skip += 1;
+                                        const next_next = self.parts[idx_p + 2];
+                                        std.debug.assert(next_next == .slash);
+
+                                        const maybe_idx_slash = std.mem.indexOfScalar(u8, part_path, '/');
+                                        if (maybe_idx_slash) |idx_slash| {
+                                            idx += idx_slash + 1;
+                                            continue;
+                                        } else {
+                                            return false;
+                                        }
+                                    } else {
+                                        // go to the end of the path
+                                        std.debug.assert(std.mem.indexOfScalar(u8, part_path, '/') == null);
+                                        return true;
+                                    }
+                                },
+
+                                .slash => {
+                                    const maybe_idx_slash = std.mem.indexOfScalar(u8, part_path, '/');
+                                    if (maybe_idx_slash) |idx_slash| {
+                                        idx += idx_slash + 1;
+                                        continue;
+                                    } else {
+                                        return false;
+                                    }
+                                },
+
+                                .asterisk => @panic("it shouldnt be possible to have two consecutive .asterisk tokens, they should be a .double_asterisk"),
+
+                                .double_asterisk => @panic("it shouldnt be possible to have a .double_asterisk after a single .asterisk"),
+                            }
+                        } else {
+                            // if we are here then this is the end and we match
+                            std.debug.assert(self.parts.len - 1 == idx_p);
+                        }
+                    },
+
+                    // NOTE: .slash must always be after a .double_asterisk, or it means its the end of the pattern
+                    .double_asterisk => {
+                        if (idx_p + 2 < self.parts.len) {
+                            const next = self.parts[idx_p + 1];
+                            const next_next = self.parts[idx_p + 2];
+                            std.debug.assert(next == .slash);
+                            switch (next_next) {
+                                .literal => |txt| {
+                                    const alloc = std.heap.page_allocator;
+                                    const search_term = try std.fmt.allocPrint(alloc, "/{s}", .{txt});
+                                    defer alloc.free(search_term);
+
+                                    const maybe_idx_slash = std.mem.indexOf(u8, part_path, search_term);
+                                    if (maybe_idx_term) |idx_term| {
+                                        idx += idx_term + 1;
+                                        continue;
+                                    } else {
+                                        return false;
+                                    }
+                                },
+
+                                .asterisk => {
+
+                                },
+
+                                // TODO: this is recursive and has to be extracted
+                                .double_asterisk => {
+
+                                },
+
+                                .slash => return false,
+                            }
+                        } else if (idx_p + 1 < self.parts.len) {
+                            const next = self.parts[idx_p + 1];
+                            std.debug.assert(next == .slash);
+                            const maybe_idx_slash = std.mem.indexOfScalar(u8, part_path, '/');
+                            if (maybe_idx_slash) |idx_slash| {
+                                idx += idx_slash + 1;
+                                continue;
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            const idx_last_asterisk = std.mem.lastIndexOfScalar(u8, part_path, '*').?;
+                            std.debug.assert(idx_last_asterisk == part_path.len - 1);
+                            idx += idx_last_asterisk;
+                            continue;
+                        }
+                    },
+                }
+            }
+
+            return true;
         }
     };
 
@@ -257,10 +478,26 @@ const Parser = struct {
             idx_start_literal = null;
         }
 
+        const root_relative = r: {
+            if (parts.items.len > 0 and parts.items[0] == .slash) {
+                _ = parts.orderedRemove(0);
+                break :r true;
+            } else {
+                break :r false;
+            }
+        };
+
         return .{
             .parts = try parts.toOwnedSlice(),
             .is_negated = is_negated,
             .is_for_dirs = line[line.len - 1] == '/',
+            .has_slashes = s: {
+                for (parts.items) |p| {
+                    if (p == .slash) break :s true;
+                }
+                break :s false;
+            },
+            .root_relative = root_relative,
         };
     }
 };
