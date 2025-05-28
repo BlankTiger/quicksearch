@@ -302,6 +302,9 @@ const Rules = struct {
         try self.list.appendSlice(rules);
     }
 
+    pub inline fn append_rules(self: *Rules, other: Rules) !void {
+        try self.append_slice(other.items());
+        other.list.deinit();
     }
 };
 
