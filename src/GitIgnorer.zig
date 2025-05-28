@@ -944,12 +944,16 @@ const MatchingTests = struct {
         var g: GitIgnorer = .init(t.allocator);
         defer g.deinit();
         const rules = try g.parser.parse(
-            \\file.txt
+            \\*.txt
         );
         defer rules.deinit();
-
         try t.expect(!g.is_excluded_with_rules("./src/search/search.zig", rules));
         try t.expect(g.is_excluded_with_rules("file.txt", rules));
+        try t.expect(g.is_excluded_with_rules("fileb.txt", rules));
+        try t.expect(g.is_excluded_with_rules(".txt", rules));
+        try t.expect(g.is_excluded_with_rules("./src/something/some.txt", rules));
+    }
+
     }
 
     const t = std.testing;
