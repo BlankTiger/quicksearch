@@ -523,6 +523,72 @@ pub fn deinit(self: *GitIgnorer) void {
     self.cache.deinit();
     self.parser.deinit();
 }
+
+/// goes in reverse order from the most specific rules until it reaches the first git
+/// repository root (submodules operate independently from parent repositories)
+pub fn is_excluded(self: *GitIgnorer, path: []const u8) !bool {
+    const rules = try self.get_rules(path);
+    defer rules.deinit();
+    return is_excluded_with_rules(path, rules);
+}
+
+fn is_excluded_with_rules(_: GitIgnorer, path: []const u8, rules: Rules) bool {
+    for (rules.items()) |rule| if (rule.matches(path)) {
+        return !rule.is_negated;
+    };
+    return false;
+}
+
+/// returns all rules for path from the provided path up until the first git repository root
+/// which is determined by the existance of a .git/info/exclude file
+// NOTE: builds the cache from right to left
+fn get_rules(self: *GitIgnorer, path: []const u8) !Rules {
+    const cwd = std.fs.cwd();
+
+    var rules: Rules = .init(self.allocator);
+    errdefer rules.deinit();
+    var in_git_repo_root = false;
+
+    var gen: PathParentGenerator = .init(path);
+    while (gen.next()) |path_parent| {
+        if (in_git_repo_root) break;
+        if (self.cache.get(path_parent)) |path_parent_rules| {
+            try rules.append_rules(path_parent_rules.rules);
+            in_git_repo_root = path_parent_rules.in_git_repo_root;
+            continue;
+        }
+
+        var path_parent_rules: Rules = .init(self.allocator);
+        errdefer path_parent_rules.deinit();
+
+        const ignore_path = try std.fmt.allocPrint(self.allocator, "{s}.gitignore", .{path_parent});
+        defer self.allocator.free(ignore_path);
+        const maybe_ignore = cwd.openFile(ignore_path, .{}) catch null;
+        defer if (maybe_ignore) |ignore| ignore.close();
+        if (maybe_ignore) |ignore| {
+            try path_parent_rules.append_rules(try self.parser.parse_from(ignore));
+        }
+
+        const exclude_path = try std.fmt.allocPrint(self.allocator, "{s}.git/info/exclude", .{path_parent});
+        defer self.allocator.free(exclude_path);
+        const maybe_exclude = cwd.openFile(exclude_path, .{}) catch null;
+        defer if (maybe_exclude) |exclude| exclude.close();
+        if (maybe_exclude) |exclude| {
+            try path_parent_rules.append_rules(try self.parser.parse_from(exclude));
+            in_git_repo_root = true;
+        }
+
+        const key = try self.allocator.dupe(u8, path_parent);
+        try self.cache.put(key, .{
+            .in_git_repo_root = in_git_repo_root,
+            .rules = path_parent_rules,
+        });
+        try rules.append_rules(path_parent_rules);
+    }
+
+    return rules;
+}
+
 // test "getting rules" {
 //     const t = std.testing;
 //     var g: GitIgnorer = .init(t.allocator);
