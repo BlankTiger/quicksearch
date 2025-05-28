@@ -1005,6 +1005,28 @@ const MatchingTests = struct {
         try t.expect(!g.is_excluded_with_rules("debug.log", rules));
         try t.expect(!g.is_excluded_with_rules("debug10.log", rules));
     }
+
+    test "character class patterns" {
+        var g: GitIgnorer = .init(t.allocator);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\*.[oa]
+            \\file[0-9].txt
+        );
+        defer rules.deinit();
+
+        // *.[oa] should match .o and .a files
+        try t.expect(g.is_excluded_with_rules("main.o", rules));
+        try t.expect(g.is_excluded_with_rules("lib.a", rules));
+        try t.expect(g.is_excluded_with_rules("./build/test.o", rules));
+        try t.expect(!g.is_excluded_with_rules("main.c", rules));
+
+        // file[0-9].txt should match digits
+        try t.expect(g.is_excluded_with_rules("file0.txt", rules));
+        try t.expect(g.is_excluded_with_rules("file9.txt", rules));
+        try t.expect(!g.is_excluded_with_rules("filea.txt", rules));
+        try t.expect(!g.is_excluded_with_rules("file10.txt", rules));
+    }
     }
 
     const t = std.testing;
