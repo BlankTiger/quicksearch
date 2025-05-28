@@ -954,6 +954,35 @@ const MatchingTests = struct {
         try t.expect(g.is_excluded_with_rules("./src/something/some.txt", rules));
     }
 
+    test "wildcard patterns" {
+        var g: GitIgnorer = .init(t.allocator);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\*.log
+            \\temp*
+            \\*debug*
+            \\*.o
+            \\*.tmp
+        );
+        defer rules.deinit();
+
+        // *.log should match
+        try t.expect(g.is_excluded_with_rules("app.log", rules));
+        try t.expect(g.is_excluded_with_rules("./logs/error.log", rules));
+        try t.expect(g.is_excluded_with_rules("production.log", rules));
+        try t.expect(!g.is_excluded_with_rules("log.txt", rules));
+
+        // temp* should match
+        try t.expect(g.is_excluded_with_rules("temp.txt", rules));
+        try t.expect(g.is_excluded_with_rules("temporary", rules));
+        try t.expect(g.is_excluded_with_rules("./build/temp_file", rules));
+        try t.expect(!g.is_excluded_with_rules("mytemp", rules));
+
+        // *debug* should match
+        try t.expect(g.is_excluded_with_rules("debug.log", rules));
+        try t.expect(g.is_excluded_with_rules("mydebugfile", rules));
+        try t.expect(g.is_excluded_with_rules("app_debug_output.txt", rules));
+    }
     }
 
     const t = std.testing;
