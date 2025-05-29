@@ -41,207 +41,179 @@ const Rules = struct {
                 }
             }
 
-            var skip: usize = 0;
-            for (self.parts, 0..) |p, idx_p| {
-                if (skip > 0) {
-                    skip -= 1;
-                    continue;
+            return self.match_from(path, idx, 0);
+        }
+
+        fn match_from(self: Rule, path: []const u8, from_idx_path: usize, from_idx_part: usize) bool {
+            if (path.len == 0 or path[from_idx_path..].len == 0) return from_idx_part >= self.parts.len - 1;
+            if (from_idx_part >= self.parts.len) {
+                if (self.is_for_dirs) {
+                    return true;
                 }
-
-                const part_path = path[idx..];
-
-                if (part_path.len == 0) return false;
-
-                switch (p) {
-                    .literal => |txt| {
-                        if (part_path.len < txt.len) return false;
-                        if (self.is_for_dirs) {
-                            const maybe_idx_literal = std.mem.indexOf(u8, part_path, txt);
-                            if (maybe_idx_literal) |idx_literal| {
-                                idx += idx_literal + txt.len;
-                                continue;
-                            } else {
-                                return false;
-                            }
-                        } else {
-                            if (!std.mem.eql(u8, part_path[0..txt.len], txt)) return false;
-                            idx += txt.len;
-                        }
-                    },
-
-                    .char_range => |ch_range| {
-                        const ranges = ch_range.ranges;
-                        const char = part_path[0];
-                        var none_matched = true;
-
-                        for (ranges) |r| {
-                            switch (r) {
-                                .single => |ch| if (char == ch) {
-                                    none_matched = false;
-                                    break;
-                                },
-
-                                .range => |ran| if (char >= ran.start and char <= ran.end) {
-                                    none_matched = false;
-                                    break;
-                                },
-                            }
-                        }
-
-                        if (none_matched and !ch_range.is_negated) return false;
-
-                        idx += 1;
-                    },
-
-                    .question_mark => {
-                        if (part_path[0] == '/') return false;
-
-                        idx += 1;
-                    },
-
-                    .slash => {
-                        if (part_path[0] != '/') return false;
-
-                        idx += 1;
-                    },
-
-                    .asterisk => {
-                        if (idx_p + 1 < self.parts.len) {
-                            const next = self.parts[idx_p + 1];
-                            skip += 1;
-                            switch (next) {
-                                .literal => |txt| {
-                                    const maybe_idx_literal = std.mem.indexOf(u8, part_path, txt);
-                                    if (maybe_idx_literal) |idx_literal| {
-                                        if (std.mem.indexOfScalar(u8, part_path[0..idx_literal], '/') != null) {
-                                            return false;
-                                        }
-                                        idx += idx_literal + txt.len;
-                                        continue;
-                                    } else {
-                                        return false;
-                                    }
-                                },
-
-                                .char_range => |ch_range| {
-                                    const ranges = ch_range.ranges;
-                                    var found_at_offset: usize = MAX_USIZE;
-
-                                    for (ranges) |r| {
-                                        for (part_path, 0..) |path_ch, idx_path_ch| {
-                                            switch (r) {
-                                                .single => |ch| if (path_ch == ch) {
-                                                    found_at_offset = idx_path_ch;
-                                                    break;
-                                                },
-
-                                                .range => |ran| if (path_ch >= ran.start and path_ch <= ran.end) {
-                                                    found_at_offset = idx_path_ch;
-                                                    break;
-                                                },
-                                            }
-                                        }
-                                    }
-
-                                    if (found_at_offset == MAX_USIZE and !ch_range.is_negated) return false;
-
-                                    idx += found_at_offset;
-                                },
-
-                                // NOTE: this will go until the next slash or the end of the path
-                                .question_mark => {
-                                    if (idx_p + 2 < self.parts.len) {
-                                        skip += 1;
-                                        const next_next = self.parts[idx_p + 2];
-                                        std.debug.assert(next_next == .slash);
-
-                                        const maybe_idx_slash = std.mem.indexOfScalar(u8, part_path, '/');
-                                        if (maybe_idx_slash) |idx_slash| {
-                                            idx += idx_slash + 1;
-                                            continue;
-                                        } else {
-                                            return false;
-                                        }
-                                    } else {
-                                        // go to the end of the path
-                                        std.debug.assert(std.mem.indexOfScalar(u8, part_path, '/') == null);
-                                        return true;
-                                    }
-                                },
-
-                                .slash => {
-                                    const maybe_idx_slash = std.mem.indexOfScalar(u8, part_path, '/');
-                                    if (maybe_idx_slash) |idx_slash| {
-                                        idx += idx_slash + 1;
-                                        continue;
-                                    } else {
-                                        return false;
-                                    }
-                                },
-
-                                .asterisk => @panic("it shouldnt be possible to have two consecutive .asterisk tokens, they should be a .double_asterisk"),
-
-                                .double_asterisk => @panic("it shouldnt be possible to have a .double_asterisk after a single .asterisk"),
-                            }
-                        } else {
-                            // if we are here then this is the end and we match
-                            std.debug.assert(self.parts.len - 1 == idx_p);
-                        }
-                    },
-
-                    // NOTE: .slash must always be after a .double_asterisk, or it means its the end of the pattern
-                    .double_asterisk => {
-                        if (idx_p + 2 < self.parts.len) {
-                            const next = self.parts[idx_p + 1];
-                            const next_next = self.parts[idx_p + 2];
-                            std.debug.assert(next == .slash);
-                            switch (next_next) {
-                                .literal => |txt| {
-                                    const alloc = std.heap.page_allocator;
-                                    const search_term = try std.fmt.allocPrint(alloc, "/{s}", .{txt});
-                                    defer alloc.free(search_term);
-
-                                    const maybe_idx_term = std.mem.indexOf(u8, part_path, search_term);
-                                    if (maybe_idx_term) |idx_term| {
-                                        idx += idx_term + 1;
-                                        continue;
-                                    } else {
-                                        return false;
-                                    }
-                                },
-
-                                .asterisk => {
-
-                                },
-
-                                // TODO: this is recursive and has to be extracted
-                                .double_asterisk => {
-
-                                },
-
-                                .slash => return false,
-                            }
-                        } else if (idx_p + 1 < self.parts.len) {
-                            const next = self.parts[idx_p + 1];
-                            std.debug.assert(next == .slash);
-                            const maybe_idx_slash = std.mem.indexOfScalar(u8, part_path, '/');
-                            if (maybe_idx_slash) |idx_slash| {
-                                idx += idx_slash + 1;
-                                continue;
-                            } else {
-                                return false;
-                            }
-                        } else {
-                            const idx_last_asterisk = std.mem.lastIndexOfScalar(u8, part_path, '*').?;
-                            std.debug.assert(idx_last_asterisk == part_path.len - 1);
-                            idx += idx_last_asterisk;
-                            continue;
-                        }
-                    },
-                }
+                return path.len == 0;
             }
 
-            return true;
+            std.debug.assert(from_idx_part < self.parts.len);
+            std.debug.assert(from_idx_path < path.len);
+
+            // var new_from_idx_path = from_idx_path;
+            // var new_from_idx_part = from_idx_part;
+
+            const subpath = path[from_idx_path..];
+            const part = self.parts[from_idx_part];
+            switch (part) {
+                .literal => |txt| {
+                    if (subpath.len < txt.len) return false;
+                    if (self.is_for_dirs) {
+                        const maybe_idx_literal = std.mem.indexOf(u8, subpath, txt);
+                        if (maybe_idx_literal) |idx_literal| {
+                            const offset = idx_literal + txt.len;
+                            return self.match_from(subpath[offset..], 0, from_idx_part + 1);
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        if (!std.mem.eql(u8, subpath[0..txt.len], txt)) return false;
+                        return self.match_from(subpath[txt.len..], 0, from_idx_part + 1);
+                    }
+                },
+
+                .char_range => |ch_range| {
+                    const ranges = ch_range.ranges;
+                    const char = subpath[0];
+                    var none_matched = true;
+
+                    for (ranges) |r| {
+                        switch (r) {
+                            .single => |ch| if (char == ch) {
+                                none_matched = false;
+                                break;
+                            },
+
+                            .range => |ran| if (char >= ran.start and char <= ran.end) {
+                                none_matched = false;
+                                break;
+                            },
+                        }
+                    }
+
+                    if (none_matched and !ch_range.is_negated) return false;
+
+                    return self.match_from(subpath[1..], 0, from_idx_part + 1);
+                },
+
+                .question_mark => {
+                    if (subpath[0] == '/') return false;
+
+                    return self.match_from(subpath[1..], 0, from_idx_part + 1);
+                },
+
+                .slash => {
+                    if (subpath[0] != '/') return false;
+
+                    return self.match_from(subpath[1..], 0, from_idx_part + 1);
+                },
+
+                .asterisk => {
+                    if (from_idx_part + 1 < self.parts.len) {
+                        const next = self.parts[from_idx_part + 1];
+                        switch (next) {
+                            .literal => |txt| {
+                                const maybe_idx_literal = std.mem.indexOf(u8, subpath, txt);
+                                if (maybe_idx_literal) |idx_literal| {
+                                    if (std.mem.indexOfScalar(u8, subpath[0..idx_literal], '/') != null) {
+                                        return false;
+                                    }
+                                    return self.match_from(subpath[idx_literal + txt.len ..], 0, from_idx_part + 2);
+                                } else {
+                                    return false;
+                                }
+                            },
+
+                            .char_range => |ch_range| {
+                                const ranges = ch_range.ranges;
+                                var found_at_offset: usize = MAX_USIZE;
+
+                                for (ranges) |r| {
+                                    for (subpath, 0..) |path_ch, idx_path_ch| {
+                                        switch (r) {
+                                            .single => |ch| if (path_ch == ch) {
+                                                found_at_offset = idx_path_ch;
+                                                break;
+                                            },
+
+                                            .range => |ran| if (path_ch >= ran.start and path_ch <= ran.end) {
+                                                found_at_offset = idx_path_ch;
+                                                break;
+                                            },
+                                        }
+                                    }
+                                }
+
+                                if (found_at_offset == MAX_USIZE and !ch_range.is_negated) return false;
+
+                                return self.match_from(subpath[found_at_offset..], 0, from_idx_part + 2);
+                            },
+
+                            // NOTE: this will go until the next slash or the end of the path
+                            .question_mark => {
+                                if (from_idx_part + 2 < self.parts.len) {
+                                    const next_next = self.parts[from_idx_part + 2];
+                                    std.debug.assert(next_next == .slash);
+
+                                    const maybe_idx_slash = std.mem.indexOfScalar(u8, subpath, '/');
+                                    if (maybe_idx_slash) |idx_slash| {
+                                        return self.match_from(subpath[idx_slash + 1 ..], 0, from_idx_part + 3);
+                                    } else {
+                                        return false;
+                                    }
+                                } else {
+                                    // go to the end of the path
+                                    std.debug.assert(std.mem.indexOfScalar(u8, subpath, '/') == null);
+                                    return true;
+                                }
+                            },
+
+                            .slash => {
+                                const maybe_idx_slash = std.mem.indexOfScalar(u8, subpath, '/');
+                                if (maybe_idx_slash) |idx_slash| {
+                                    return self.match_from(subpath[idx_slash + 1 ..], 0, from_idx_part + 2);
+                                } else {
+                                    return false;
+                                }
+                            },
+
+                            .asterisk => @panic("it shouldnt be possible to have two consecutive .asterisk tokens, they should be a .double_asterisk"),
+
+                            .double_asterisk => @panic("it shouldnt be possible to have a .double_asterisk after a single .asterisk"),
+                        }
+                    } else {
+                        // if we are here then this is the end and we match
+                        std.debug.assert(self.parts.len - 1 == from_idx_part);
+                        return true;
+                    }
+                },
+
+                // NOTE: .slash must always be after a .double_asterisk, or it means its the end of the pattern
+                .double_asterisk => {
+                    return self.match_double_asterisk(subpath, 0, from_idx_part + 1);
+                },
+            }
+
+            return false;
+        }
+
+        fn match_double_asterisk(self: Rule, path: []const u8, from_idx_path: usize, from_idx_part: usize) bool {
+            // if there is no more parts to check after .double_asterisk then we match every directory
+            if (from_idx_part >= self.parts.len - 1) return path[path.len - 1] == '/';
+
+            std.debug.assert(self.parts[from_idx_part] == .slash);
+            // we look for all consecutive slashes and try matching by the next part
+            const subpath = path[from_idx_path..];
+            _ = subpath; // autofix
+            const part = self.parts[from_idx_part];
+            _ = part; // autofix
+            return false;
         }
     };
 
