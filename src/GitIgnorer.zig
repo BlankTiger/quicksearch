@@ -1042,6 +1042,41 @@ const MatchingTests = struct {
         try t.expect(!g.is_excluded_with_rules("./logs/debug.log", rules));
         try t.expect(!g.is_excluded_with_rules("./tools/build", rules));
     }
+
+    test "double asterisk patterns - recursive matching" {
+        var g: GitIgnorer = .init(t.allocator);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\**/logs
+            \\**/logs/*.log
+            \\logs/**/*.log
+            \\abc/**
+        );
+        defer rules.deinit();
+
+        // **/logs should match logs directory anywhere
+        try t.expect(g.is_excluded_with_rules("logs/", rules));
+        try t.expect(g.is_excluded_with_rules("./src/logs/", rules));
+        try t.expect(g.is_excluded_with_rules("./deep/nested/logs/", rules));
+        try t.expect(g.is_excluded_with_rules("logs/error.log", rules));
+
+        // **/logs/*.log should match .log files in any logs directory
+        try t.expect(g.is_excluded_with_rules("logs/app.log", rules));
+        try t.expect(g.is_excluded_with_rules("./src/logs/debug.log", rules));
+        try t.expect(g.is_excluded_with_rules("logs/nested/app.log", rules));
+
+        // logs/**/*.log should match .log files in logs tree
+        try t.expect(g.is_excluded_with_rules("logs/app.log", rules));
+        try t.expect(g.is_excluded_with_rules("logs/nested/debug.log", rules));
+        try t.expect(g.is_excluded_with_rules("logs/very/deep/error.log", rules));
+        try t.expect(g.is_excluded_with_rules("./other/logs/app.log", rules));
+
+        // abc/** should match everything inside abc
+        try t.expect(g.is_excluded_with_rules("abc/file.txt", rules));
+        try t.expect(g.is_excluded_with_rules("abc/nested/deep/file.txt", rules));
+        try t.expect(!g.is_excluded_with_rules("abc/", rules)); // directory itself not matched
+    }
+
     const t = std.testing;
 };
 const std = @import("std");
