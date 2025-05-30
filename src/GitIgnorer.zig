@@ -1071,9 +1071,38 @@ const MatchingTests = struct {
         try t.expect(g.is_excluded_with_rules("./other/logs/app.log", rules));
 
         // abc/** should match everything inside abc
+        try t.expect(g.is_excluded_with_rules("abc/files/", rules));
         try t.expect(g.is_excluded_with_rules("abc/file.txt", rules));
         try t.expect(g.is_excluded_with_rules("abc/nested/deep/file.txt", rules));
         try t.expect(!g.is_excluded_with_rules("abc/", rules)); // directory itself not matched
+    }
+
+    test "double asterisk pattern followed by a star" {
+        var g: GitIgnorer = .init(t.allocator);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\abc/**/*
+        );
+        defer rules.deinit();
+
+        try t.expect(g.is_excluded_with_rules("abc/nested/deep/", rules));
+        try t.expect(g.is_excluded_with_rules("abc/nested/deep.txt", rules));
+        try t.expect(g.is_excluded_with_rules("abc/nested/", rules));
+        try t.expect(g.is_excluded_with_rules("abc/file.txt", rules));
+    }
+
+    test "double asterisk pattern followed by a star, followed by a literal" {
+        var g: GitIgnorer = .init(t.allocator);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\abc/**/*.txt
+        );
+        defer rules.deinit();
+
+        try t.expect(!g.is_excluded_with_rules("abc/nested/deep/", rules));
+        try t.expect(g.is_excluded_with_rules("abc/nested/deep.txt", rules));
+        try t.expect(!g.is_excluded_with_rules("abc/nested/", rules));
+        try t.expect(g.is_excluded_with_rules("abc/file.txt", rules));
     }
 
     const t = std.testing;
