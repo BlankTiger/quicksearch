@@ -56,9 +56,6 @@ const Rules = struct {
             std.debug.assert(from_idx_part < self.parts.len);
             std.debug.assert(from_idx_path < path.len);
 
-            // var new_from_idx_path = from_idx_path;
-            // var new_from_idx_part = from_idx_part;
-
             const subpath = path[from_idx_path..];
             const part = self.parts[from_idx_part];
             switch (part) {
@@ -209,10 +206,6 @@ const Rules = struct {
 
             std.debug.assert(self.parts[from_idx_part] == .slash);
             // we look for all consecutive slashes and try matching by the next part
-            const subpath = path[from_idx_path..];
-            _ = subpath; // autofix
-            const part = self.parts[from_idx_part];
-            _ = part; // autofix
             return false;
         }
     };
