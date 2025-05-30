@@ -1161,6 +1161,34 @@ const MatchingTests = struct {
         try t.expect(g.is_excluded_with_rules("abc/file.txt", rules));
     }
 
+    test "middle double asterisk patterns" {
+        var g: GitIgnorer = .init(t.allocator);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\a/**/b
+            \\src/**/test
+            \\**/cache/**
+        );
+        defer rules.deinit();
+
+        // a/**/b should match zero or more directories between a and b
+        try t.expect(g.is_excluded_with_rules("a/b", rules));
+        try t.expect(g.is_excluded_with_rules("a/x/b", rules));
+        try t.expect(g.is_excluded_with_rules("a/x/y/z/b", rules));
+        try t.expect(!g.is_excluded_with_rules("b/a", rules));
+
+        // src/**/test should match test anywhere under src
+        try t.expect(g.is_excluded_with_rules("src/test", rules));
+        try t.expect(g.is_excluded_with_rules("src/unit/test", rules));
+        try t.expect(g.is_excluded_with_rules("src/deep/nested/test", rules));
+        try t.expect(!g.is_excluded_with_rules("test/src", rules));
+
+        // **/cache/** should match cache anywhere and everything inside
+        try t.expect(g.is_excluded_with_rules("cache/file.txt", rules));
+        try t.expect(g.is_excluded_with_rules("./src/cache/data.json", rules));
+        try t.expect(g.is_excluded_with_rules("./deep/path/cache/nested/file.bin", rules));
+    }
+
     const t = std.testing;
 };
 const std = @import("std");
