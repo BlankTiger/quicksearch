@@ -34,7 +34,7 @@ const Rules = struct {
                 idx = 0;
             } else {
                 // For non-root-relative patterns, use the existing logic
-                if (!self.has_slashes and !self.is_for_dirs) {
+                if (!self.has_slashes and !self.is_for_dirs and path[path.len - 1] != '/') {
                     if (std.mem.lastIndexOfScalar(u8, path, '/')) |idx_slash| {
                         idx = idx_slash + 1;
                     }
@@ -45,12 +45,13 @@ const Rules = struct {
         }
 
         fn match_from(self: Rule, path: []const u8, from_idx_path: usize, from_idx_part: usize) bool {
+            if (path.len == 0 and from_idx_part >= self.parts.len - 1 and self.parts[self.parts.len - 1] == .double_asterisk) return false;
             if (path.len == 0 or path[from_idx_path..].len == 0) return from_idx_part >= self.parts.len - 1;
             if (from_idx_part >= self.parts.len) {
                 if (self.is_for_dirs) {
                     return true;
                 }
-                return path.len == 0;
+                return path.len == 0 or (path[from_idx_path..].len == 1 and path[from_idx_path] == '/');
             }
 
             std.debug.assert(from_idx_part < self.parts.len);
@@ -202,10 +203,65 @@ const Rules = struct {
 
         fn match_double_asterisk(self: Rule, path: []const u8, from_idx_path: usize, from_idx_part: usize) bool {
             // if there is no more parts to check after .double_asterisk then we match every directory
-            if (from_idx_part >= self.parts.len - 1) return path[path.len - 1] == '/';
+            if (from_idx_part >= self.parts.len - 1) {
+                if (self.parts[self.parts.len - 1] == .double_asterisk) {
+                    return path.len != 0;
+                }
+
+                return path[path.len - 1] == '/';
+            }
 
             std.debug.assert(self.parts[from_idx_part] == .slash);
+            if (from_idx_part + 1 >= self.parts.len) @panic("huh");
+            const part = self.parts[from_idx_part + 1];
             // we look for all consecutive slashes and try matching by the next part
+            const subpath = if (path[from_idx_path] == '/') path[from_idx_path + 1 ..] else path[from_idx_path..];
+
+            var idx_slash: usize = 0;
+            var out_buf: [200]u8 = undefined;
+            while (true) {
+                const path_from_slash = subpath[idx_slash..];
+                switch (part) {
+                    .literal => |txt| {
+                        const maybe_idx_literal = std.mem.indexOf(u8, path_from_slash, txt);
+                        if (maybe_idx_literal) |idx_literal| {
+                            if (std.mem.indexOfScalar(u8, path_from_slash[0..idx_literal], '/') == null) {
+                                return true;
+                            }
+                        }
+                    },
+
+                    .asterisk => {
+                        if (from_idx_part + 2 >= self.parts.len) return true;
+
+                        const next_part = self.parts[from_idx_part + 2];
+                        switch (next_part) {
+                            .literal => |txt| {
+                                const maybe_idx_literal = std.mem.indexOf(u8, path_from_slash, txt);
+                                if (maybe_idx_literal) |idx_literal| {
+                                    if (std.mem.indexOfScalar(u8, path_from_slash[0..idx_literal], '/') == null) {
+                                        return true;
+                                    }
+                                }
+                            },
+
+                            .asterisk, .double_asterisk => @panic("illegal"),
+
+                            else => @panic(std.fmt.bufPrint(&out_buf, "unimplemented for: {s}", .{@tagName(next_part)}) catch "deez"),
+                        }
+                    },
+
+                    else => @panic(std.fmt.bufPrint(&out_buf, "unimplemented for: {s}", .{@tagName(part)}) catch "nuts"),
+                }
+
+                const maybe_offset_slash = std.mem.indexOfScalar(u8, subpath[idx_slash..], '/');
+                if (maybe_offset_slash) |offset_slash| {
+                    idx_slash += offset_slash + 1;
+                } else {
+                    return false;
+                }
+            }
+
             return false;
         }
     };
