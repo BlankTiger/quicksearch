@@ -456,16 +456,18 @@ const Parser = struct {
             }
         };
 
+        const has_slashes = s: {
+            for (parts.items) |p| {
+                if (p == .slash) break :s true;
+            }
+            break :s false;
+        };
+
         return .{
             .parts = try parts.toOwnedSlice(),
             .is_negated = is_negated,
             .is_for_dirs = line[line.len - 1] == '/',
-            .has_slashes = s: {
-                for (parts.items) |p| {
-                    if (p == .slash) break :s true;
-                }
-                break :s false;
-            },
+            .has_slashes = has_slashes,
             .root_relative = root_relative,
         };
     }
@@ -777,6 +779,10 @@ const ParserTests = struct {
         defer rules.deinit();
 
         try t.expectEqual(3, rules.len());
+
+        try t.expect(rules.items()[0].has_slashes);
+        try t.expect(rules.items()[1].has_slashes);
+        try t.expect(rules.items()[2].has_slashes);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "src" },
