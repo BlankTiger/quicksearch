@@ -7,7 +7,7 @@ pub const Options = struct {
     respect_gitignore: bool = true,
     gitignorer: ?GitIgnorer = null,
 
-    fn deinit(self: *Options) void {
+    pub fn deinit(self: *Options) void {
         if (self.gitignorer) |*g| g.deinit();
     }
 };
@@ -22,15 +22,20 @@ pub fn find_files(opts: *Options) !PathList {
     }
 
     if (opts.path) |path| {
+        var p = path;
+        if (!std.mem.startsWith(u8, path, "./")) {
+            p = try std.fmt.allocPrint(opts.allocator, "./{s}", .{path});
+        }
+        if (p[p.len - 1] == '/') p = p[0..p.len - 1];
         const cwd = std.fs.cwd();
-        const stat = try cwd.statFile(path);
+        const stat = try cwd.statFile(p);
         switch (stat.kind) {
             .file => {
-                try paths.append(path);
+                try paths.append(p);
                 return paths;
             },
             .directory => {
-                try find_files_in_dir(path, &paths, opts);
+                try find_files_in_dir(p, &paths, opts);
             },
             else => {},
         }
