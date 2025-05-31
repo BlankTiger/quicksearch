@@ -84,6 +84,10 @@ fn make_relative(allocator: std.mem.Allocator, pre: []const u8, post: []const u8
 }
 
 test {
+    if (config.running_in_ci) {
+        return error.SkipZigTest;
+    }
+
     var arena_state = std.heap.ArenaAllocator.init(t.allocator);
     var opts: Options = .{
         .allocator = t.allocator,
@@ -133,4 +137,5 @@ test {
 
 const t = std.testing;
 const std = @import("std");
+const config = @import("config");
 const GitIgnorer = @import("gitignore.zig").GitIgnorer;

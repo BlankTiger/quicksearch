@@ -4,6 +4,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const options = b.addOptions();
+    const ci = b.option(bool, "running_in_ci", "is running in ci") orelse false;
+    options.addOption(bool, "running_in_ci", ci);
+
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -21,7 +25,7 @@ pub fn build(b: *std.Build) void {
             .name = "quicksearch",
             .root_module = exe_mod,
         });
-
+        exe.root_module.addOptions("config", options);
         exe.root_module.addImport("qslib", lib_mod);
 
         b.installArtifact(exe);
@@ -40,12 +44,14 @@ pub fn build(b: *std.Build) void {
         const exe_unit_tests = b.addTest(.{
             .root_module = exe_mod,
         });
+        exe_unit_tests.root_module.addOptions("config", options);
 
         const lib_unit_tests = b.addTest(.{
             .root_module = lib_mod,
             .target = target,
             .optimize = optimize,
         });
+        lib_unit_tests.root_module.addOptions("config", options);
 
         const search_mod = b.addModule("searchlib", .{
             .root_source_file = b.path("src/search.zig"),
@@ -62,6 +68,7 @@ pub fn build(b: *std.Build) void {
                 .mode = .simple,
             },
         });
+        search_unit_tests.root_module.addOptions("config", options);
 
         const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
         const run_search_unit_tests = b.addRunArtifact(search_unit_tests);
@@ -83,6 +90,7 @@ pub fn build(b: *std.Build) void {
             .name = "quicksearch-bench",
             .root_module = benchmark_mod,
         });
+        benchmark_exe.root_module.addOptions("config", options);
         benchmark_exe.root_module.addImport("qslib", lib_mod);
 
         b.installArtifact(benchmark_exe);

@@ -1,0 +1,16 @@
+name: Run tests
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Build and test
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: 0.15.0-dev.516+abbead1fb
+
+      - name: Run tests and get stats
+        id: test-stats
+        run: |
+          zig build -Drunning_in_ci=true test --summary all
