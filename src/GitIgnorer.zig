@@ -28,7 +28,7 @@ const Rules = struct {
 
     const Rule = struct {
         from_gitignore_in: []const u8,
-        pattern: []const u8,
+        pattern: if (builtin.is_test) []const u8 else void,
         parts: []const RegexPart,
         is_negated: bool,
         is_for_dirs: bool,
@@ -525,7 +525,7 @@ const Parser = struct {
 
         return .{
             .from_gitignore_in = from_gitignore_in,
-            .pattern = line,
+            .pattern = if (builtin.is_test) line else {},
             .parts = try parts.toOwnedSlice(),
             .is_negated = is_negated,
             .is_for_dirs = line[line.len - 1] == '/',
@@ -1207,5 +1207,7 @@ const MatchingTests = struct {
 
     const t = std.testing;
 };
+
 const std = @import("std");
+const builtin = @import("builtin");
 const PathParentGenerator = @import("PathParentGenerator.zig");
