@@ -405,7 +405,6 @@ const Parser = struct {
                         defer maybe_idx_backslash = null;
                         if (idx_backslash == idx - 1) {
                             if (idx_start_literal) |idx_start| if (line[idx_start..idx_backslash].len > 0) {
-
                                 try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx_backslash]) });
                                 idx_start_literal = null;
                             };
@@ -433,7 +432,6 @@ const Parser = struct {
                         defer maybe_idx_backslash = null;
                         if (idx_backslash == idx - 1) {
                             if (idx_start_literal) |idx_start| if (line[idx_start..idx_backslash].len > 0) {
-
                                 try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx_backslash]) });
                                 idx_start_literal = null;
                             };
@@ -464,7 +462,6 @@ const Parser = struct {
                         defer maybe_idx_backslash = null;
                         if (idx_backslash == idx - 1) {
                             if (idx_start_literal) |idx_start| if (line[idx_start..idx_backslash].len > 0) {
-
                                 try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx_backslash]) });
                                 idx_start_literal = null;
                             };
@@ -540,7 +537,6 @@ const Parser = struct {
                         defer maybe_idx_backslash = null;
                         if (idx_backslash == idx - 1) {
                             if (idx_start_literal) |idx_start| if (line[idx_start..idx_backslash].len > 0) {
-
                                 try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx_backslash]) });
                                 idx_start_literal = null;
                             };
@@ -1374,6 +1370,29 @@ const MatchingTests = struct {
 
         // Escaped exclamation mark (not negation)
         try t.expectEqual(.excluded, g.match_with_rules("./!not_negated.txt", rules));
+    }
+
+    test "everything excluded, some includes" {
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\*
+            \\!*/
+            \\!*.keep
+            \\.*
+            \\!.gitignore
+        , "./");
+
+        // * should match everything, but negations should override
+        try t.expectEqual(.excluded, g.match_with_rules("./file.txt", rules));
+        try t.expectEqual(.included, g.match_with_rules("./dir/", rules)); // negated
+        try t.expectEqual(.included, g.match_with_rules("./important.keep", rules)); // negated
+
+        // .* should match hidden files, but .gitignore negated
+        try t.expectEqual(.excluded, g.match_with_rules("./.hidden", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./.env", rules));
+        try t.expectEqual(.included, g.match_with_rules("./.gitignore", rules)); // negated
     }
 
     const t = std.testing;
