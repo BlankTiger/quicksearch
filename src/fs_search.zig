@@ -105,4 +105,4 @@ test {
 
 const t = std.testing;
 const std = @import("std");
-const GitIgnorer = @import("GitIgnorer.zig");
+const GitIgnorer = @import("gitignore.zig").GitIgnorer;

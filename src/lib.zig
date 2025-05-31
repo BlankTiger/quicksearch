@@ -9,13 +9,11 @@ test {
     // CUSTOM TEST RUNNER SETUP
 
     _ = MmapReader;
-    _ = PathParentGenerator;
-    _ = GitIgnorer;
+    _ = gitignore;
     _ = fs_search;
 }
 
 pub const search = @import("search.zig");
 pub const MmapReader = @import("MmapReader.zig");
-pub const GitIgnorer = @import("GitIgnorer.zig");
+pub const gitignore = @import("gitignore.zig");
 pub const fs_search = @import("fs_search.zig");
-const PathParentGenerator = @import("PathParentGenerator.zig");
