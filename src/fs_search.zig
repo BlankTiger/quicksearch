@@ -6,11 +6,15 @@ pub const Options = struct {
     ignore_hidden: bool = true,
     respect_gitignore: bool = true,
     gitignorer: ?GitIgnorer = null,
+
+    fn deinit(self: *Options) void {
+        if (self.gitignorer) |*g| g.deinit();
+    }
 };
 
 const PathList = std.ArrayList([]const u8);
 
-pub fn find_files(opts: Options) !PathList {
+pub fn find_files(opts: *Options) !PathList {
     var paths: PathList = try .initCapacity(opts.allocator, 200);
     errdefer {
         for (paths.items) |p| opts.allocator.free(p);
@@ -37,7 +41,7 @@ pub fn find_files(opts: Options) !PathList {
     return paths;
 }
 
-fn find_files_in_dir(path: []const u8, paths: *PathList, opts: Options) !void {
+fn find_files_in_dir(path: []const u8, paths: *PathList, opts: *Options) !void {
     var dir = try std.fs.cwd().openDir(path, .{ .iterate = true });
     defer dir.close();
     var iter = dir.iterate();
@@ -79,8 +83,17 @@ fn make_relative(allocator: std.mem.Allocator, pre: []const u8, post: []const u8
 }
 
 test {
-    const opts: Options = .{ .allocator = t.allocator, .extension = ".zig" };
-    const paths = try find_files(opts);
+    var arena_state = std.heap.ArenaAllocator.init(t.allocator);
+    var opts: Options = .{
+        .allocator = t.allocator,
+        // .extension = ".zig",
+        .gitignorer = .init(&arena_state),
+    };
+    defer {
+        std.debug.print("used: {d} KB\n", .{arena_state.queryCapacity() / 1024});
+        opts.deinit();
+    }
+    const paths = try find_files(&opts);
     defer {
         for (paths.items) |p| {
             std.debug.print("found: {s}\n", .{p});

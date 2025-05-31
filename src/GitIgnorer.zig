@@ -1,10 +1,17 @@
+//! Caller is supposed to pass in an arena allocator. No explicit
+//! deallocation is done in an instance of a `GitIgnorer`. Deallocation
+//! can be done by calling .deinit() either on `GitIgnorer` or on the
+//! passed arena.
+
+arena: *std.heap.ArenaAllocator,
+allocator: std.mem.Allocator,
+
 /// holds paths to directories and if they are git directories,
 /// then they hold IgnoreRules, otherwise it's null, which means
 /// that directory is not a git directory or it didnt contain
 /// any rules
 cache: Cache,
 parser: Parser,
-allocator: std.mem.Allocator,
 
 const GitIgnorer = @This();
 const Cache = std.StringHashMap(struct { rules: Rules, in_git_repo_root: bool });
@@ -25,11 +32,6 @@ const Rules = struct {
         is_for_dirs: bool,
         has_slashes: bool,
         root_relative: bool,
-
-        pub fn deinit(self: Rule, allocator: std.mem.Allocator) void {
-            for (self.parts) |part| part.deinit(allocator);
-            allocator.free(self.parts);
-        }
 
         pub fn match(self: Rule, path: []const u8) MatchResult {
             var idx: usize = 0;
@@ -285,23 +287,11 @@ const Rules = struct {
         double_asterisk: void,
         question_mark: void,
         slash: void,
-
-        inline fn deinit(self: RegexPart, allocator: std.mem.Allocator) void {
-            switch (self) {
-                .literal => |txt| allocator.free(txt),
-                .char_range => |range| range.deinit(allocator),
-                .asterisk, .double_asterisk, .question_mark, .slash => {},
-            }
-        }
     };
 
     const CharRange = struct {
         ranges: []const Range,
         is_negated: bool,
-
-        pub fn deinit(self: CharRange, allocator: std.mem.Allocator) void {
-            allocator.free(self.ranges);
-        }
     };
 
     const Range = union(enum) {
@@ -313,11 +303,6 @@ const Rules = struct {
         return .{
             .list = .init(allocator),
         };
-    }
-
-    pub fn deinit(self: Rules) void {
-        for (self.items()) |rule| rule.deinit(self.list.allocator);
-        self.list.deinit();
     }
 
     pub inline fn items(self: Rules) []const Rule {
@@ -338,10 +323,11 @@ const Rules = struct {
 
     pub inline fn append_rules(self: *Rules, other: Rules) !void {
         try self.append_slice(other.items());
-        other.list.deinit();
     }
 };
 
+/// Caller is supposed to pass in an arena allocator. No explicit
+/// deallocation is done in an instance of a `Parser`.
 const Parser = struct {
     allocator: std.mem.Allocator,
 
@@ -353,23 +339,17 @@ const Parser = struct {
         };
     }
 
-    pub fn deinit(self: Self) void {
-        _ = self;
-    }
-
     const Rule = Rules.Rule;
     const RegexPart = Rules.RegexPart;
 
     /// doesnt take ownership of `file`
     pub fn parse_from(self: Self, file: std.fs.File) !Rules {
         const content = try file.readToEndAlloc(self.allocator, MAX_USIZE);
-        defer self.allocator.free(content);
         return self.parse(content);
     }
 
     pub fn parse(self: Self, content: []const u8) !Rules {
         var rules: Rules = .init(self.allocator);
-        errdefer rules.deinit();
         if (std.mem.eql(u8, content, "")) return rules;
 
         var line_iter = std.mem.splitBackwardsScalar(u8, content, '\n');
@@ -388,7 +368,6 @@ const Parser = struct {
         std.debug.assert(line.len > 0);
 
         var parts: std.ArrayList(RegexPart) = .init(allocator);
-        errdefer parts.deinit();
 
         var idx: usize = 0;
         var idx_start_literal: ?usize = null;
@@ -440,10 +419,8 @@ const Parser = struct {
                     if (range_negated) idx += 1;
 
                     var ranges: std.ArrayList(Rules.Range) = .init(allocator);
-                    errdefer ranges.deinit();
                     {
                         var characters: std.ArrayList(u8) = .init(allocator);
-                        defer characters.deinit();
                         while (true) {
                             const new_ch = line[idx];
                             switch (new_ch) {
@@ -541,30 +518,25 @@ const Parser = struct {
     }
 };
 
-pub fn init(allocator: std.mem.Allocator) GitIgnorer {
+pub fn init(arena: *std.heap.ArenaAllocator) GitIgnorer {
+    const allocator = arena.allocator();
     return .{
         .cache = .init(allocator),
         .parser = .init(allocator),
+        .arena = arena,
         .allocator = allocator,
     };
 }
 
 pub fn deinit(self: *GitIgnorer) void {
-    var iter = self.cache.iterator();
-    while (iter.next()) |e| {
-        self.allocator.free(e.key_ptr.*);
-        // e.value_ptr.*.rules.deinit();
-    }
-    self.cache.deinit();
-    self.parser.deinit();
+    self.arena.deinit();
 }
 
 /// goes in reverse order from the most specific rules until it reaches the first git
 /// repository root (submodules operate independently from parent repositories)
 pub fn match(self: *GitIgnorer, path: []const u8) !MatchResult {
     const rules = try self.get_rules(path);
-    defer rules.deinit();
-    return match_with_rules(path, rules);
+    return self.match_with_rules(path, rules);
 }
 
 fn match_with_rules(_: GitIgnorer, path: []const u8, rules: Rules) MatchResult {
@@ -582,7 +554,6 @@ fn get_rules(self: *GitIgnorer, path: []const u8) !Rules {
     const cwd = std.fs.cwd();
 
     var rules: Rules = .init(self.allocator);
-    errdefer rules.deinit();
     var in_git_repo_root = false;
 
     var gen: PathParentGenerator = .init(path);
@@ -595,10 +566,8 @@ fn get_rules(self: *GitIgnorer, path: []const u8) !Rules {
         }
 
         var path_parent_rules: Rules = .init(self.allocator);
-        errdefer path_parent_rules.deinit();
 
         const ignore_path = try std.fmt.allocPrint(self.allocator, "{s}.gitignore", .{path_parent});
-        defer self.allocator.free(ignore_path);
         const maybe_ignore = cwd.openFile(ignore_path, .{}) catch null;
         defer if (maybe_ignore) |ignore| ignore.close();
         if (maybe_ignore) |ignore| {
@@ -606,7 +575,6 @@ fn get_rules(self: *GitIgnorer, path: []const u8) !Rules {
         }
 
         const exclude_path = try std.fmt.allocPrint(self.allocator, "{s}.git/info/exclude", .{path_parent});
-        defer self.allocator.free(exclude_path);
         const maybe_exclude = cwd.openFile(exclude_path, .{}) catch null;
         defer if (maybe_exclude) |exclude| exclude.close();
         if (maybe_exclude) |exclude| {
@@ -655,19 +623,19 @@ test {
 
 const ParserTests = struct {
     test "parser can produce rules from provided text" {
-        const p: Parser = .init(t.allocator);
-        defer p.deinit();
         const rules = try p.parse("");
-        defer rules.deinit();
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        defer arena.deinit();
+        const p: Parser = .init(arena.allocator());
 
         try t.expectEqual(0, rules.len());
     }
 
     test "parser can produce a simple file rule" {
-        const p: Parser = .init(t.allocator);
-        defer p.deinit();
         const rules = try p.parse("file.txt");
-        defer rules.deinit();
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        defer arena.deinit();
+        const p: Parser = .init(arena.allocator());
 
         try t.expectEqual(1, rules.len());
         try t.expectEqual(1, rules.items()[0].parts.len);
@@ -675,13 +643,13 @@ const ParserTests = struct {
     }
 
     test "parser can produce many simple file rules" {
-        const p: Parser = .init(t.allocator);
-        defer p.deinit();
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        defer arena.deinit();
+        const p: Parser = .init(arena.allocator());
         const rules = try p.parse(
             \\file_a.txt
             \\file_b.txt
         );
-        defer rules.deinit();
 
         try t.expectEqual(2, rules.len());
         try t.expectEqual(1, rules.items()[0].parts.len);
@@ -691,14 +659,14 @@ const ParserTests = struct {
     }
 
     test "parser ignores empty lines" {
-        const p: Parser = .init(t.allocator);
-        defer p.deinit();
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        defer arena.deinit();
+        const p: Parser = .init(arena.allocator());
         const rules = try p.parse(
             \\file_a.txt
             \\
             \\file_b.txt
         );
-        defer rules.deinit();
 
         try t.expectEqual(2, rules.len());
         try t.expectEqual(1, rules.items()[0].parts.len);
@@ -708,15 +676,15 @@ const ParserTests = struct {
     }
 
     test "parser ignores commented lines" {
-        const p: Parser = .init(t.allocator);
-        defer p.deinit();
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        defer arena.deinit();
+        const p: Parser = .init(arena.allocator());
         const rules = try p.parse(
             \\file_a.txt
             \\# file_b.txt
             \\#file_b.txt
             \\\#file_b.txt
         );
-        defer rules.deinit();
 
         try t.expectEqual(2, rules.len());
         try t.expectEqual(1, rules.items()[0].parts.len);
@@ -730,8 +698,9 @@ const ParserTests = struct {
     const Range = Rules.Range;
 
     test "parser can parse * patterns" {
-        const p: Parser = .init(t.allocator);
-        defer p.deinit();
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        defer arena.deinit();
+        const p: Parser = .init(arena.allocator());
         const rules = try p.parse(
             \\*file_a.txt
             \\file_*.txt
@@ -739,7 +708,6 @@ const ParserTests = struct {
             \\file_*.*
             \\*file_*.*
         );
-        defer rules.deinit();
 
         try t.expectEqual(5, rules.len());
 
@@ -776,14 +744,14 @@ const ParserTests = struct {
     }
 
     test "parse negation" {
-        const p: Parser = .init(t.allocator);
-        defer p.deinit();
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        defer arena.deinit();
+        const p: Parser = .init(arena.allocator());
         const rules = try p.parse(
             \\!file_a.txt
             \\\!file_b.txt
             \\\!file_!.txt
         );
-        defer rules.deinit();
 
         try t.expectEqual(3, rules.len());
 
@@ -802,13 +770,13 @@ const ParserTests = struct {
     }
 
     test "rules store if they are matching directories or not" {
-        const p: Parser = .init(t.allocator);
-        defer p.deinit();
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        defer arena.deinit();
+        const p: Parser = .init(arena.allocator());
         const rules = try p.parse(
             \\file_a.txt
             \\dir/
         );
-        defer rules.deinit();
 
         try t.expectEqual(2, rules.len());
 
@@ -821,12 +789,12 @@ const ParserTests = struct {
     }
 
     test "parsing ?" {
-        const p: Parser = .init(t.allocator);
-        defer p.deinit();
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        defer arena.deinit();
+        const p: Parser = .init(arena.allocator());
         const rules = try p.parse(
             \\file_?.txt
         );
-        defer rules.deinit();
 
         try t.expectEqual(1, rules.len());
 
@@ -838,14 +806,14 @@ const ParserTests = struct {
     }
 
     test "parsing **" {
-        const p: Parser = .init(t.allocator);
-        defer p.deinit();
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        defer arena.deinit();
+        const p: Parser = .init(arena.allocator());
         const rules = try p.parse(
             \\src/**/*.zig
             \\**/foo
             \\abc/**
         );
-        defer rules.deinit();
 
         try t.expectEqual(3, rules.len());
 
@@ -876,8 +844,9 @@ const ParserTests = struct {
     }
 
     test "parsing char ranges" {
-        const p: Parser = .init(t.allocator);
-        defer p.deinit();
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        defer arena.deinit();
+        const p: Parser = .init(arena.allocator());
         const rules = try p.parse(
             \\file_[a-b].txt
             \\[a-zA-Z0-9].txt
@@ -887,7 +856,6 @@ const ParserTests = struct {
             \\[^xyz].txt
             \\[xyzA-Z].txt
         );
-        defer rules.deinit();
 
         try t.expectEqual(7, rules.len());
 
@@ -981,12 +949,12 @@ const ParserTests = struct {
 
 const MatchingTests = struct {
     test "simple file match" {
-        var g: GitIgnorer = .init(t.allocator);
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
         defer g.deinit();
         const rules = try g.parser.parse(
             \\*.txt
         );
-        defer rules.deinit();
         try t.expectEqual(.none, g.match_with_rules("./src/search/search.zig", rules));
         try t.expectEqual(.excluded, g.match_with_rules("file.txt", rules));
         try t.expectEqual(.excluded, g.match_with_rules("fileb.txt", rules));
@@ -995,7 +963,8 @@ const MatchingTests = struct {
     }
 
     test "wildcard patterns" {
-        var g: GitIgnorer = .init(t.allocator);
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
         defer g.deinit();
         const rules = try g.parser.parse(
             \\*.log
@@ -1004,7 +973,6 @@ const MatchingTests = struct {
             \\*.o
             \\*.tmp
         );
-        defer rules.deinit();
 
         // *.log should match
         try t.expectEqual(.excluded, g.match_with_rules("app.log", rules));
@@ -1025,13 +993,13 @@ const MatchingTests = struct {
     }
 
     test "question mark wildcard" {
-        var g: GitIgnorer = .init(t.allocator);
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
         defer g.deinit();
         const rules = try g.parser.parse(
             \\file?.txt
             \\debug?.log
         );
-        defer rules.deinit();
 
         // file?.txt should match single character
         try t.expectEqual(.excluded, g.match_with_rules("file1.txt", rules));
@@ -1047,13 +1015,13 @@ const MatchingTests = struct {
     }
 
     test "character class patterns" {
-        var g: GitIgnorer = .init(t.allocator);
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
         defer g.deinit();
         const rules = try g.parser.parse(
             \\*.[oa]
             \\file[0-9].txt
         );
-        defer rules.deinit();
 
         // *.[oa] should match .o and .a files
         try t.expectEqual(.excluded, g.match_with_rules("main.o", rules));
@@ -1069,14 +1037,14 @@ const MatchingTests = struct {
     }
 
     test "directory patterns with trailing slash" {
-        var g: GitIgnorer = .init(t.allocator);
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
         defer g.deinit();
         const rules = try g.parser.parse(
             \\node_modules/
             \\build/
             \\temp/
         );
-        defer rules.deinit();
 
         // Should match directories and their contents
         try t.expectEqual(.excluded, g.match_with_rules("node_modules/", rules));
@@ -1091,14 +1059,14 @@ const MatchingTests = struct {
     }
 
     test "leading slash patterns - root relative" {
-        var g: GitIgnorer = .init(t.allocator);
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
         defer g.deinit();
         const rules = try g.parser.parse(
             \\/debug.log
             \\/build
             \\/config.json
         );
-        defer rules.deinit();
 
         // Should match only in root
         try t.expectEqual(.excluded, g.match_with_rules("debug.log", rules));
@@ -1112,7 +1080,8 @@ const MatchingTests = struct {
     }
 
     test "double asterisk patterns - recursive matching" {
-        var g: GitIgnorer = .init(t.allocator);
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
         defer g.deinit();
         const rules = try g.parser.parse(
             \\**/logs
@@ -1120,7 +1089,6 @@ const MatchingTests = struct {
             \\logs/**/*.log
             \\abc/**
         );
-        defer rules.deinit();
 
         // **/logs should match logs directory anywhere
         try t.expectEqual(.excluded, g.match_with_rules("logs/", rules));
@@ -1147,12 +1115,12 @@ const MatchingTests = struct {
     }
 
     test "double asterisk pattern followed by a star" {
-        var g: GitIgnorer = .init(t.allocator);
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
         defer g.deinit();
         const rules = try g.parser.parse(
             \\abc/**/*
         );
-        defer rules.deinit();
 
         try t.expectEqual(.excluded, g.match_with_rules("abc/nested/deep/", rules));
         try t.expectEqual(.excluded, g.match_with_rules("abc/nested/deep.txt", rules));
@@ -1161,12 +1129,12 @@ const MatchingTests = struct {
     }
 
     test "double asterisk pattern followed by a star, followed by a literal" {
-        var g: GitIgnorer = .init(t.allocator);
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
         defer g.deinit();
         const rules = try g.parser.parse(
             \\abc/**/*.txt
         );
-        defer rules.deinit();
 
         try t.expectEqual(.none, g.match_with_rules("abc/nested/deep/", rules));
         try t.expectEqual(.none, g.match_with_rules("abc/nested/", rules));
@@ -1175,14 +1143,14 @@ const MatchingTests = struct {
     }
 
     test "middle double asterisk patterns" {
-        var g: GitIgnorer = .init(t.allocator);
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
         defer g.deinit();
         const rules = try g.parser.parse(
             \\a/**/b
             \\src/**/test
             \\**/cache/**
         );
-        defer rules.deinit();
 
         // a/**/b should match zero or more directories between a and b
         try t.expectEqual(.excluded, g.match_with_rules("a/b", rules));
