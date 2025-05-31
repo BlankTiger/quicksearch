@@ -1288,6 +1288,32 @@ const MatchingTests = struct {
         try t.expectEqual(.included, g.match_with_rules("./temporary_config.json", rules)); // negated
     }
 
+    test "escape characters" {
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\foo\[01].txt
+            \\file\*.log
+            \\dir\?name
+            \\\!not_negated.txt
+        , "./");
+
+        // Should match literal characters, not wildcards
+        try t.expectEqual(.excluded, g.match_with_rules("./foo[01].txt", rules));
+        try t.expectEqual(.none, g.match_with_rules("./foo0.txt", rules));
+        try t.expectEqual(.none, g.match_with_rules("./foo1.txt", rules));
+
+        try t.expectEqual(.excluded, g.match_with_rules("./file*.log", rules));
+        try t.expectEqual(.none, g.match_with_rules("./fileapp.log", rules));
+
+        try t.expectEqual(.excluded, g.match_with_rules("./dir?name", rules));
+        try t.expectEqual(.none, g.match_with_rules("./dirname", rules));
+
+        // Escaped exclamation mark (not negation)
+        try t.expectEqual(.excluded, g.match_with_rules("./!not_negated.txt", rules));
+    }
+
     const t = std.testing;
 };
 
