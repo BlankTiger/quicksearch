@@ -75,7 +75,7 @@ const Rules = struct {
 
         fn match_from(self: Rule, path: []const u8, from_idx_path: usize, from_idx_part: usize) bool {
             if (path.len == 0 and from_idx_part >= self.parts.len - 1 and self.parts[self.parts.len - 1] == .double_asterisk) return false;
-            if (path.len == 0 or path[from_idx_path..].len == 0) return from_idx_part >= self.parts.len - 1;
+            if (path.len == 0 or path[from_idx_path..].len == 0) return from_idx_part > self.parts.len - 1;
             if (from_idx_part >= self.parts.len) {
                 if (self.is_for_dirs) {
                     return true;
