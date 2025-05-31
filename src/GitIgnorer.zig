@@ -557,11 +557,13 @@ pub fn match(self: *GitIgnorer, path: []const u8) !MatchResult {
 }
 
 fn match_with_rules(_: GitIgnorer, path: []const u8, rules: Rules) MatchResult {
+    var result: MatchResult = .none;
     for (rules.items()) |rule| {
         const rule_match = rule.match(path);
-        if (rule_match != .none) return rule_match;
+        if (rule_match == .included) return rule_match;
+        if (rule_match != .none) result = rule_match;
     }
-    return .none;
+    return result;
 }
 
 /// returns all rules for path from the provided path up until the first git repository root
