@@ -1182,6 +1182,35 @@ const MatchingTests = struct {
         try t.expectEqual(.excluded, g.match_with_rules("./deep/path/cache/nested/file.bin", rules));
     }
 
+    test "negation patterns with exclamation mark" {
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\*.log
+            \\!important.log
+            \\build/
+            \\!build/keep.txt
+            \\temp*
+            \\!temporary_config.json
+        , "./");
+
+        // *.log should match, but !important.log should negate
+        try t.expectEqual(.excluded, g.match_with_rules("./app.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./error.log", rules));
+        try t.expectEqual(.included, g.match_with_rules("./important.log", rules)); // negated
+
+        // build/ should match, but !build/keep.txt should negate
+        try t.expectEqual(.excluded, g.match_with_rules("./build/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./build/output.bin", rules));
+        try t.expectEqual(.included, g.match_with_rules("./build/keep.txt", rules)); // negated
+
+        // temp* should match, but !temporary_config.json should negate
+        try t.expectEqual(.excluded, g.match_with_rules("./temp.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./temporary.log", rules));
+        try t.expectEqual(.included, g.match_with_rules("./temporary_config.json", rules)); // negated
+    }
+
     const t = std.testing;
 };
 
