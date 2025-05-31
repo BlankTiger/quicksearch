@@ -1288,6 +1288,68 @@ const MatchingTests = struct {
         try t.expectEqual(.included, g.match_with_rules("./temporary_config.json", rules)); // negated
     }
 
+    test "complex" {
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
+        defer g.deinit();
+        const rules = try g.parser.parse(
+            \\# Compiled output
+            \\/dist
+            \\/tmp
+            \\/out-tsc
+            \\
+            \\# Node modules
+            \\node_modules/
+            \\npm-debug.log*
+            \\yarn-debug.log*
+            \\yarn-error.log*
+            \\
+            \\# IDEs and editors
+            \\.vscode/
+            \\.idea/
+            \\*.swp
+            \\*.swo
+            \\*~
+            \\
+            \\# OS
+            \\.DS_Store
+            \\Thumbs.db
+            \\
+            \\# Logs
+            \\logs/
+            \\*.log
+            \\!important.log
+        , "./");
+
+        // Compiled output (root only)
+        try t.expectEqual(.excluded, g.match_with_rules("./dist", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./tmp", rules));
+        try t.expectEqual(.none, g.match_with_rules("./src/dist", rules));
+
+        // Node modules
+        try t.expectEqual(.excluded, g.match_with_rules("./node_modules/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./node_modules/lodash/index.js", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./npm-debug.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./npm-debug.log.1", rules));
+
+        // IDEs and editors
+        try t.expectEqual(.excluded, g.match_with_rules("./.vscode/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./.vscode/settings.json", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./src/.idea/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./file.swp", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./backup~", rules));
+
+        // OS files
+        try t.expectEqual(.excluded, g.match_with_rules("./.DS_Store", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./folder/.DS_Store", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./Thumbs.db", rules));
+
+        // Logs with negation
+        try t.expectEqual(.excluded, g.match_with_rules("./logs/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./app.log", rules));
+        try t.expectEqual(.included, g.match_with_rules("./important.log", rules)); // negated
+    }
+
     test "escape characters" {
         var arena: std.heap.ArenaAllocator = .init(t.allocator);
         var g: GitIgnorer = .init(&arena);
