@@ -396,10 +396,25 @@ const Parser = struct {
             idx = 1;
         }
 
+        var maybe_idx_backslash: ?usize = null;
         while (idx < line.len) {
             const ch = line[idx];
             switch (ch) {
                 '*' => {
+                    if (maybe_idx_backslash) |idx_backslash| {
+                        defer maybe_idx_backslash = null;
+                        if (idx_backslash == idx - 1) {
+                            if (idx_start_literal) |idx_start| if (line[idx_start..idx_backslash].len > 0) {
+
+                                try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx_backslash]) });
+                                idx_start_literal = null;
+                            };
+                            idx_start_literal = idx;
+                            idx += 1;
+                            continue;
+                        }
+                    }
+
                     if (idx_start_literal) |idx_start| {
                         try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx]) });
                         idx_start_literal = null;
@@ -414,6 +429,20 @@ const Parser = struct {
                 },
 
                 '?' => {
+                    if (maybe_idx_backslash) |idx_backslash| {
+                        defer maybe_idx_backslash = null;
+                        if (idx_backslash == idx - 1) {
+                            if (idx_start_literal) |idx_start| if (line[idx_start..idx_backslash].len > 0) {
+
+                                try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx_backslash]) });
+                                idx_start_literal = null;
+                            };
+                            idx_start_literal = idx;
+                            idx += 1;
+                            continue;
+                        }
+                    }
+
                     if (idx_start_literal) |idx_start| {
                         try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx]) });
                         idx_start_literal = null;
@@ -422,7 +451,29 @@ const Parser = struct {
                     try parts.append(.question_mark);
                 },
 
+                '\\' => {
+                    if (idx_start_literal == null) {
+                        idx_start_literal = idx;
+                    }
+                    maybe_idx_backslash = idx;
+                    idx += 1;
+                },
+
                 '[' => {
+                    if (maybe_idx_backslash) |idx_backslash| {
+                        defer maybe_idx_backslash = null;
+                        if (idx_backslash == idx - 1) {
+                            if (idx_start_literal) |idx_start| if (line[idx_start..idx_backslash].len > 0) {
+
+                                try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx_backslash]) });
+                                idx_start_literal = null;
+                            };
+                            idx_start_literal = idx;
+                            idx += 1;
+                            continue;
+                        }
+                    }
+
                     if (idx_start_literal) |idx_start| {
                         try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx]) });
                         idx_start_literal = null;
@@ -485,6 +536,20 @@ const Parser = struct {
                 },
 
                 '/' => {
+                    if (maybe_idx_backslash) |idx_backslash| {
+                        defer maybe_idx_backslash = null;
+                        if (idx_backslash == idx - 1) {
+                            if (idx_start_literal) |idx_start| if (line[idx_start..idx_backslash].len > 0) {
+
+                                try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx_backslash]) });
+                                idx_start_literal = null;
+                            };
+                            idx_start_literal = idx;
+                            idx += 1;
+                            continue;
+                        }
+                    }
+
                     if (idx_start_literal) |idx_start| {
                         try parts.append(.{ .literal = try allocator.dupe(u8, line[idx_start..idx]) });
                         idx_start_literal = null;
@@ -851,9 +916,11 @@ const ParserTests = struct {
             \\[!xyz].txt
             \\[^xyz].txt
             \\[xyzA-Z].txt
+            \\\[xyzA-Z].txt
+            \\\[xyzA-Z\].txt
         , "./");
 
-        try t.expectEqual(7, rules.len());
+        try t.expectEqual(9, rules.len());
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .literal = "file_" },
@@ -864,7 +931,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items()[6].parts);
+        }, rules.items()[8].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -876,7 +943,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items()[5].parts);
+        }, rules.items()[7].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -888,7 +955,7 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
-        }, rules.items()[4].parts);
+        }, rules.items()[6].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -900,31 +967,31 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
+        }, rules.items()[5].parts);
+
+        try t.expectEqualDeep(&[_]RegexPart{
+            .{ .char_range = .{
+                .ranges = &[_]Range{
+                    .{ .single = 'x' },
+                    .{ .single = 'y' },
+                    .{ .single = 'z' },
+                },
+                .is_negated = true,
+            } },
+            .{ .literal = ".txt" },
+        }, rules.items()[4].parts);
+
+        try t.expectEqualDeep(&[_]RegexPart{
+            .{ .char_range = .{
+                .ranges = &[_]Range{
+                    .{ .single = 'x' },
+                    .{ .single = 'y' },
+                    .{ .single = 'z' },
+                },
+                .is_negated = true,
+            } },
+            .{ .literal = ".txt" },
         }, rules.items()[3].parts);
-
-        try t.expectEqualDeep(&[_]RegexPart{
-            .{ .char_range = .{
-                .ranges = &[_]Range{
-                    .{ .single = 'x' },
-                    .{ .single = 'y' },
-                    .{ .single = 'z' },
-                },
-                .is_negated = true,
-            } },
-            .{ .literal = ".txt" },
-        }, rules.items()[2].parts);
-
-        try t.expectEqualDeep(&[_]RegexPart{
-            .{ .char_range = .{
-                .ranges = &[_]Range{
-                    .{ .single = 'x' },
-                    .{ .single = 'y' },
-                    .{ .single = 'z' },
-                },
-                .is_negated = true,
-            } },
-            .{ .literal = ".txt" },
-        }, rules.items()[1].parts);
 
         try t.expectEqualDeep(&[_]RegexPart{
             .{ .char_range = .{
@@ -937,6 +1004,14 @@ const ParserTests = struct {
                 .is_negated = false,
             } },
             .{ .literal = ".txt" },
+        }, rules.items()[2].parts);
+
+        try t.expectEqualDeep(&[_]RegexPart{
+            .{ .literal = "[xyzA-Z].txt" },
+        }, rules.items()[1].parts);
+
+        try t.expectEqualDeep(&[_]RegexPart{
+            .{ .literal = "[xyzA-Z\\].txt" },
         }, rules.items()[0].parts);
     }
 
