@@ -42,7 +42,7 @@ fn match_with_rules(_: GitIgnorer, path: []const u8, rules: Rules) MatchResult {
     for (rules.items()) |rule| {
         const rule_match = rule.match(path);
         if (rule_match == .included) return rule_match;
-        if (rule_match != .none) result = rule_match;
+        if (rule_match == .excluded) result = rule_match;
     }
     return result;
 }
