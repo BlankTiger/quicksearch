@@ -87,21 +87,48 @@ test {
     var arena_state = std.heap.ArenaAllocator.init(t.allocator);
     var opts: Options = .{
         .allocator = t.allocator,
-        // .extension = ".zig",
+        .ignore_hidden = false,
         .gitignorer = .init(&arena_state),
     };
     defer {
-        std.debug.print("used: {d} KB\n", .{arena_state.queryCapacity() / 1024});
+        // std.debug.print("used: {d} KB\n", .{arena_state.queryCapacity() / 1024});
         opts.deinit();
     }
     const paths = try find_files(&opts);
     defer {
         for (paths.items) |p| {
-            std.debug.print("found: {s}\n", .{p});
             opts.allocator.free(p);
         }
         paths.deinit();
     }
+
+    const git_cmd_res = try std.process.Child.run(.{
+        .allocator = arena_state.allocator(),
+        .cwd_dir = std.fs.cwd(),
+        .argv = &.{
+            "git",
+            "ls-files",
+        },
+    });
+    var git_ls: std.ArrayList([]const u8) = .init(arena_state.allocator());
+    var line_iter = std.mem.splitScalar(u8, std.mem.trim(u8, git_cmd_res.stdout, "\n\t "), '\n');
+    while (line_iter.next()) |l| try git_ls.append(l);
+    const git_ls_lines = git_ls.items;
+    // for (git_ls_lines) |line| {
+    //     std.debug.print("1: {s}\n", .{line});
+    // }
+    //
+    // for (paths.items) |p| {
+    //     std.debug.print("2: {s}\n", .{p});
+    // }
+    try t.expectEqual(git_ls_lines.len, paths.items.len);
+    var found_equal: usize = 0;
+    for (git_ls_lines) |line| {
+        for (paths.items) |p| {
+            if (std.mem.eql(u8, p[2..], line)) found_equal += 1;
+        }
+    }
+    try t.expectEqual(git_ls_lines.len, found_equal);
 }
 
 const t = std.testing;
