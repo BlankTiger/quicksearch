@@ -54,7 +54,7 @@ fn find_files_in_dir(path: []const u8, paths: *PathList, opts: *Options) !void {
                 if (opts.extension != null and !std.mem.endsWith(u8, e.name, opts.extension.?)) continue;
 
                 const relative = try make_relative(opts.allocator, path, e.name);
-                if (opts.respect_gitignore and opts.gitignorer.?.is_ignored(relative, e.kind)) {
+                if (opts.respect_gitignore and try opts.gitignorer.?.match(relative) == .excluded) {
                     opts.allocator.free(relative);
                     continue;
                 }
@@ -64,7 +64,7 @@ fn find_files_in_dir(path: []const u8, paths: *PathList, opts: *Options) !void {
             },
             .directory => {
                 const relative = try make_relative(opts.allocator, path, e.name);
-                if (opts.respect_gitignore and opts.gitignorer.?.is_ignored(relative, e.kind)) {
+                if (opts.respect_gitignore and try opts.gitignorer.?.match(relative) == .excluded) {
                     opts.allocator.free(relative);
                     continue;
                 }
@@ -79,7 +79,7 @@ fn find_files_in_dir(path: []const u8, paths: *PathList, opts: *Options) !void {
 
 /// caller owns the resulting memory
 fn make_relative(allocator: std.mem.Allocator, pre: []const u8, post: []const u8) ![]const u8 {
-    return std.fmt.allocPrint(allocator, "{s}/{s}", .{pre, post});
+    return std.fmt.allocPrint(allocator, "{s}/{s}", .{ pre, post });
 }
 
 test {
