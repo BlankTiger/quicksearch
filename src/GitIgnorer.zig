@@ -27,29 +27,44 @@ const Rules = struct {
     list: std.ArrayList(Rule),
 
     const Rule = struct {
+        from_gitignore_in: []const u8,
+        pattern: []const u8,
         parts: []const RegexPart,
         is_negated: bool,
         is_for_dirs: bool,
         has_slashes: bool,
         root_relative: bool,
 
+        ///
+        /// `path` MUST:
+        /// - BE TERMINATED BY A `/` IF IT'S A DIRECTORY
+        /// - must also start with './'
+        ///
         pub fn match(self: Rule, path: []const u8) MatchResult {
+            std.debug.assert(path.len >= 2 and path[0] == '.' and path[1] == '/');
+
+            var relative_to_gitignore = path;
+            const maybe_prefix_offset = std.mem.indexOf(u8, path, self.from_gitignore_in);
+            if (maybe_prefix_offset) |prefix_offset| {
+                if (!(self.parts.len >= 2 and self.parts[0] == .literal and self.parts[0].literal.len == 1 and self.parts[0].literal[0] == '.' and self.parts[1] == .slash)) {
+                    relative_to_gitignore = path[prefix_offset + self.from_gitignore_in.len ..];
+                }
+            }
+
             var idx: usize = 0;
-            // Handle root_relative patterns
             if (self.root_relative) {
                 // Root relative patterns must match from the beginning of the path
                 // Don't skip to filename - match the full path from root
                 idx = 0;
             } else {
-                // For non-root-relative patterns, use the existing logic
-                if (!self.has_slashes and !self.is_for_dirs and path[path.len - 1] != '/') {
-                    if (std.mem.lastIndexOfScalar(u8, path, '/')) |idx_slash| {
+                if (!self.has_slashes and !self.is_for_dirs and relative_to_gitignore[relative_to_gitignore.len - 1] != '/') {
+                    if (std.mem.lastIndexOfScalar(u8, relative_to_gitignore, '/')) |idx_slash| {
                         idx = idx_slash + 1;
                     }
                 }
             }
 
-            const matches_patterns = self.match_from(path, idx, 0);
+            const matches_patterns = self.match_from(relative_to_gitignore, idx, 0);
             if (matches_patterns) {
                 if (self.is_negated) return .included;
                 return .excluded;
@@ -343,18 +358,18 @@ const Parser = struct {
     const RegexPart = Rules.RegexPart;
 
     /// doesnt take ownership of `file`
-    pub fn parse_from(self: Self, file: std.fs.File) !Rules {
+    pub fn parse_from(self: Self, file: std.fs.File, from_gitignore_in: []const u8) !Rules {
         const content = try file.readToEndAlloc(self.allocator, MAX_USIZE);
-        return self.parse(content);
+        return self.parse(content, from_gitignore_in);
     }
 
-    pub fn parse(self: Self, content: []const u8) !Rules {
+    pub fn parse(self: Self, content: []const u8, from_gitignore_in: []const u8) !Rules {
         var rules: Rules = .init(self.allocator);
         if (std.mem.eql(u8, content, "")) return rules;
 
         var line_iter = std.mem.splitBackwardsScalar(u8, content, '\n');
         while (line_iter.next()) |line| {
-            if (try parse_rule(self.allocator, line)) |rule| {
+            if (try parse_rule(self.allocator, line, from_gitignore_in)) |rule| {
                 try rules.append(rule);
             }
         }
@@ -362,7 +377,7 @@ const Parser = struct {
         return rules;
     }
 
-    fn parse_rule(allocator: std.mem.Allocator, line: []const u8) !?Rule {
+    fn parse_rule(allocator: std.mem.Allocator, line: []const u8, from_gitignore_in: []const u8) !?Rule {
         if (std.mem.eql(u8, line, "")) return null;
         if (std.mem.startsWith(u8, line, "#")) return null;
         std.debug.assert(line.len > 0);
@@ -509,6 +524,8 @@ const Parser = struct {
         };
 
         return .{
+            .from_gitignore_in = from_gitignore_in,
+            .pattern = line,
             .parts = try parts.toOwnedSlice(),
             .is_negated = is_negated,
             .is_for_dirs = line[line.len - 1] == '/',
@@ -571,14 +588,14 @@ fn get_rules(self: *GitIgnorer, path: []const u8) !Rules {
         const maybe_ignore = cwd.openFile(ignore_path, .{}) catch null;
         defer if (maybe_ignore) |ignore| ignore.close();
         if (maybe_ignore) |ignore| {
-            try path_parent_rules.append_rules(try self.parser.parse_from(ignore));
+            try path_parent_rules.append_rules(try self.parser.parse_from(ignore, path_parent));
         }
 
         const exclude_path = try std.fmt.allocPrint(self.allocator, "{s}.git/info/exclude", .{path_parent});
         const maybe_exclude = cwd.openFile(exclude_path, .{}) catch null;
         defer if (maybe_exclude) |exclude| exclude.close();
         if (maybe_exclude) |exclude| {
-            try path_parent_rules.append_rules(try self.parser.parse_from(exclude));
+            try path_parent_rules.append_rules(try self.parser.parse_from(exclude, path_parent));
             in_git_repo_root = true;
         }
 
@@ -623,19 +640,19 @@ test {
 
 const ParserTests = struct {
     test "parser can produce rules from provided text" {
-        const rules = try p.parse("");
         var arena: std.heap.ArenaAllocator = .init(t.allocator);
         defer arena.deinit();
         const p: Parser = .init(arena.allocator());
+        const rules = try p.parse("", "./");
 
         try t.expectEqual(0, rules.len());
     }
 
     test "parser can produce a simple file rule" {
-        const rules = try p.parse("file.txt");
         var arena: std.heap.ArenaAllocator = .init(t.allocator);
         defer arena.deinit();
         const p: Parser = .init(arena.allocator());
+        const rules = try p.parse("file.txt", "./");
 
         try t.expectEqual(1, rules.len());
         try t.expectEqual(1, rules.items()[0].parts.len);
@@ -649,7 +666,7 @@ const ParserTests = struct {
         const rules = try p.parse(
             \\file_a.txt
             \\file_b.txt
-        );
+        , "./");
 
         try t.expectEqual(2, rules.len());
         try t.expectEqual(1, rules.items()[0].parts.len);
@@ -666,7 +683,7 @@ const ParserTests = struct {
             \\file_a.txt
             \\
             \\file_b.txt
-        );
+        , "./");
 
         try t.expectEqual(2, rules.len());
         try t.expectEqual(1, rules.items()[0].parts.len);
@@ -684,7 +701,7 @@ const ParserTests = struct {
             \\# file_b.txt
             \\#file_b.txt
             \\\#file_b.txt
-        );
+        , "./");
 
         try t.expectEqual(2, rules.len());
         try t.expectEqual(1, rules.items()[0].parts.len);
@@ -707,7 +724,7 @@ const ParserTests = struct {
             \\file_a.*
             \\file_*.*
             \\*file_*.*
-        );
+        , "./");
 
         try t.expectEqual(5, rules.len());
 
@@ -751,7 +768,7 @@ const ParserTests = struct {
             \\!file_a.txt
             \\\!file_b.txt
             \\\!file_!.txt
-        );
+        , "./");
 
         try t.expectEqual(3, rules.len());
 
@@ -776,7 +793,7 @@ const ParserTests = struct {
         const rules = try p.parse(
             \\file_a.txt
             \\dir/
-        );
+        , "./");
 
         try t.expectEqual(2, rules.len());
 
@@ -794,7 +811,7 @@ const ParserTests = struct {
         const p: Parser = .init(arena.allocator());
         const rules = try p.parse(
             \\file_?.txt
-        );
+        , "./");
 
         try t.expectEqual(1, rules.len());
 
@@ -813,7 +830,7 @@ const ParserTests = struct {
             \\src/**/*.zig
             \\**/foo
             \\abc/**
-        );
+        , "./");
 
         try t.expectEqual(3, rules.len());
 
@@ -855,7 +872,7 @@ const ParserTests = struct {
             \\[!xyz].txt
             \\[^xyz].txt
             \\[xyzA-Z].txt
-        );
+        , "./");
 
         try t.expectEqual(7, rules.len());
 
@@ -954,12 +971,30 @@ const MatchingTests = struct {
         defer g.deinit();
         const rules = try g.parser.parse(
             \\*.txt
-        );
+        , "./");
         try t.expectEqual(.none, g.match_with_rules("./src/search/search.zig", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("file.txt", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("fileb.txt", rules));
-        try t.expectEqual(.excluded, g.match_with_rules(".txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./file.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./fileb.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./.txt", rules));
         try t.expectEqual(.excluded, g.match_with_rules("./src/something/some.txt", rules));
+    }
+
+    test "matching for rules found in different directories" {
+        var arena: std.heap.ArenaAllocator = .init(t.allocator);
+        var g: GitIgnorer = .init(&arena);
+        defer g.deinit();
+        var rules = try g.parser.parse(
+            \\./*.txt
+        , "./");
+        try rules.append_rules(try g.parser.parse(
+            \\cba/**
+        , "./abc/search/"));
+
+        try t.expectEqual(.excluded, g.match_with_rules("./file.txt", rules));
+        try t.expectEqual(.none, g.match_with_rules("./abc/file.txt", rules));
+        try t.expectEqual(.none, g.match_with_rules("./abc/search/file.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./abc/search/cba/cba.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./abc/search/cba/new/", rules));
     }
 
     test "wildcard patterns" {
@@ -972,24 +1007,24 @@ const MatchingTests = struct {
             \\*debug*
             \\*.o
             \\*.tmp
-        );
+        , "./");
 
         // *.log should match
-        try t.expectEqual(.excluded, g.match_with_rules("app.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./app.log", rules));
         try t.expectEqual(.excluded, g.match_with_rules("./logs/error.log", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("production.log", rules));
-        try t.expectEqual(.none, g.match_with_rules("log.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./production.log", rules));
+        try t.expectEqual(.none, g.match_with_rules("./log.txt", rules));
 
         // temp* should match
-        try t.expectEqual(.excluded, g.match_with_rules("temp.txt", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("temporary", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./temp.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./temporary", rules));
         try t.expectEqual(.excluded, g.match_with_rules("./build/temp_file", rules));
-        try t.expectEqual(.none, g.match_with_rules("mytemp", rules));
+        try t.expectEqual(.none, g.match_with_rules("./mytemp", rules));
 
         // *debug* should match
-        try t.expectEqual(.excluded, g.match_with_rules("debug.log", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("mydebugfile", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("app_debug_output.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./debug.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./mydebugfile", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./app_debug_output.txt", rules));
     }
 
     test "question mark wildcard" {
@@ -999,19 +1034,19 @@ const MatchingTests = struct {
         const rules = try g.parser.parse(
             \\file?.txt
             \\debug?.log
-        );
+        , "./");
 
         // file?.txt should match single character
-        try t.expectEqual(.excluded, g.match_with_rules("file1.txt", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("filea.txt", rules));
-        try t.expectEqual(.none, g.match_with_rules("file10.txt", rules));
-        try t.expectEqual(.none, g.match_with_rules("file.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./file1.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./filea.txt", rules));
+        try t.expectEqual(.none, g.match_with_rules("./file10.txt", rules));
+        try t.expectEqual(.none, g.match_with_rules("./file.txt", rules));
 
         // debug?.log should match
-        try t.expectEqual(.excluded, g.match_with_rules("debug1.log", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("debugx.log", rules));
-        try t.expectEqual(.none, g.match_with_rules("debug.log", rules));
-        try t.expectEqual(.none, g.match_with_rules("debug10.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./debug1.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./debugx.log", rules));
+        try t.expectEqual(.none, g.match_with_rules("./debug.log", rules));
+        try t.expectEqual(.none, g.match_with_rules("./debug10.log", rules));
     }
 
     test "character class patterns" {
@@ -1021,19 +1056,19 @@ const MatchingTests = struct {
         const rules = try g.parser.parse(
             \\*.[oa]
             \\file[0-9].txt
-        );
+        , "./");
 
         // *.[oa] should match .o and .a files
-        try t.expectEqual(.excluded, g.match_with_rules("main.o", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("lib.a", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./main.o", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./lib.a", rules));
         try t.expectEqual(.excluded, g.match_with_rules("./build/test.o", rules));
-        try t.expectEqual(.none, g.match_with_rules("main.c", rules));
+        try t.expectEqual(.none, g.match_with_rules("./main.c", rules));
 
         // file[0-9].txt should match digits
-        try t.expectEqual(.excluded, g.match_with_rules("file0.txt", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("file9.txt", rules));
-        try t.expectEqual(.none, g.match_with_rules("filea.txt", rules));
-        try t.expectEqual(.none, g.match_with_rules("file10.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./file0.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./file9.txt", rules));
+        try t.expectEqual(.none, g.match_with_rules("./filea.txt", rules));
+        try t.expectEqual(.none, g.match_with_rules("./file10.txt", rules));
     }
 
     test "directory patterns with trailing slash" {
@@ -1044,18 +1079,18 @@ const MatchingTests = struct {
             \\node_modules/
             \\build/
             \\temp/
-        );
+        , "./");
 
         // Should match directories and their contents
-        try t.expectEqual(.excluded, g.match_with_rules("node_modules/", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("node_modules/package.json", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./node_modules/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./node_modules/package.json", rules));
         try t.expectEqual(.excluded, g.match_with_rules("./src/node_modules/lib.js", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("build/", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("build/output.bin", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./build/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./build/output.bin", rules));
 
         // Should not match files with same name
-        try t.expectEqual(.none, g.match_with_rules("node_modules.txt", rules));
-        try t.expectEqual(.none, g.match_with_rules("build.log", rules));
+        try t.expectEqual(.none, g.match_with_rules("./node_modules.txt", rules));
+        try t.expectEqual(.none, g.match_with_rules("./build.log", rules));
     }
 
     test "leading slash patterns - root relative" {
@@ -1066,12 +1101,12 @@ const MatchingTests = struct {
             \\/debug.log
             \\/build
             \\/config.json
-        );
+        , "./");
 
         // Should match only in root
-        try t.expectEqual(.excluded, g.match_with_rules("debug.log", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("build", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("config.json", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./debug.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./build", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./config.json", rules));
 
         // Should not match in subdirectories
         try t.expectEqual(.none, g.match_with_rules("./src/debug.log", rules));
@@ -1088,30 +1123,30 @@ const MatchingTests = struct {
             \\**/logs/*.log
             \\logs/**/*.log
             \\abc/**
-        );
+        , "./");
 
         // **/logs should match logs directory anywhere
-        try t.expectEqual(.excluded, g.match_with_rules("logs/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./logs/", rules));
         try t.expectEqual(.excluded, g.match_with_rules("./src/logs/", rules));
         try t.expectEqual(.excluded, g.match_with_rules("./deep/nested/logs/", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("logs/error.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./logs/error.log", rules));
 
         // **/logs/*.log should match .log files in any logs directory
-        try t.expectEqual(.excluded, g.match_with_rules("logs/app.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./logs/app.log", rules));
         try t.expectEqual(.excluded, g.match_with_rules("./src/logs/debug.log", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("logs/nested/app.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./logs/nested/app.log", rules));
 
         // logs/**/*.log should match .log files in logs tree
-        try t.expectEqual(.excluded, g.match_with_rules("logs/app.log", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("logs/nested/debug.log", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("logs/very/deep/error.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./logs/app.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./logs/nested/debug.log", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./logs/very/deep/error.log", rules));
         try t.expectEqual(.excluded, g.match_with_rules("./other/logs/app.log", rules));
 
         // abc/** should match everything inside abc
-        try t.expectEqual(.excluded, g.match_with_rules("abc/files/", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("abc/file.txt", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("abc/nested/deep/file.txt", rules));
-        try t.expectEqual(.none, g.match_with_rules("abc/", rules)); // directory itself not matched
+        try t.expectEqual(.excluded, g.match_with_rules("./abc/files/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./abc/file.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./abc/nested/deep/file.txt", rules));
+        try t.expectEqual(.none, g.match_with_rules("./abc/", rules)); // directory itself not matched
     }
 
     test "double asterisk pattern followed by a star" {
@@ -1120,12 +1155,12 @@ const MatchingTests = struct {
         defer g.deinit();
         const rules = try g.parser.parse(
             \\abc/**/*
-        );
+        , "./");
 
-        try t.expectEqual(.excluded, g.match_with_rules("abc/nested/deep/", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("abc/nested/deep.txt", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("abc/nested/", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("abc/file.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./abc/nested/deep/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./abc/nested/deep.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./abc/nested/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./abc/file.txt", rules));
     }
 
     test "double asterisk pattern followed by a star, followed by a literal" {
@@ -1134,12 +1169,12 @@ const MatchingTests = struct {
         defer g.deinit();
         const rules = try g.parser.parse(
             \\abc/**/*.txt
-        );
+        , "./");
 
-        try t.expectEqual(.none, g.match_with_rules("abc/nested/deep/", rules));
-        try t.expectEqual(.none, g.match_with_rules("abc/nested/", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("abc/file.txt", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("abc/nested/deep.txt", rules));
+        try t.expectEqual(.none, g.match_with_rules("./abc/nested/deep/", rules));
+        try t.expectEqual(.none, g.match_with_rules("./abc/nested/", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./abc/file.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./abc/nested/deep.txt", rules));
     }
 
     test "middle double asterisk patterns" {
@@ -1150,22 +1185,22 @@ const MatchingTests = struct {
             \\a/**/b
             \\src/**/test
             \\**/cache/**
-        );
+        , "./");
 
         // a/**/b should match zero or more directories between a and b
-        try t.expectEqual(.excluded, g.match_with_rules("a/b", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("a/x/b", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("a/x/y/z/b", rules));
-        try t.expectEqual(.none, g.match_with_rules("b/a", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./a/b", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./a/x/b", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./a/x/y/z/b", rules));
+        try t.expectEqual(.none, g.match_with_rules("./b/a", rules));
 
         // src/**/test should match test anywhere under src
-        try t.expectEqual(.excluded, g.match_with_rules("src/test", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("src/unit/test", rules));
-        try t.expectEqual(.excluded, g.match_with_rules("src/deep/nested/test", rules));
-        try t.expectEqual(.none, g.match_with_rules("test/src", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./src/test", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./src/unit/test", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./src/deep/nested/test", rules));
+        try t.expectEqual(.none, g.match_with_rules("./test/src", rules));
 
         // **/cache/** should match cache anywhere and everything inside
-        try t.expectEqual(.excluded, g.match_with_rules("cache/file.txt", rules));
+        try t.expectEqual(.excluded, g.match_with_rules("./cache/file.txt", rules));
         try t.expectEqual(.excluded, g.match_with_rules("./src/cache/data.json", rules));
         try t.expectEqual(.excluded, g.match_with_rules("./deep/path/cache/nested/file.bin", rules));
     }
