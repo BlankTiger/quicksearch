@@ -63,6 +63,7 @@ fn find_files_in_dir(path: []const u8, paths: *PathList, opts: *Options) !void {
                 try paths.append(relative);
             },
             .directory => {
+                if (std.mem.eql(u8, e.name, ".git")) continue;
                 const relative = try make_relative(opts.allocator, path, e.name);
                 if (opts.respect_gitignore and try opts.gitignorer.?.match(relative) == .excluded) {
                     opts.allocator.free(relative);
