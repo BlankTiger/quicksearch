@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
 
     {
         const exe = b.addExecutable(.{
-            .name = "quicksearch",
+            .name = "qs",
             .root_module = exe_mod,
         });
         exe.root_module.addOptions("config", options);
