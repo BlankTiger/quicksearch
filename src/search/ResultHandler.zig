@@ -40,7 +40,7 @@ fn format_fn_default(_: *Handler, writer: std.io.AnyWriter, r: SearchResult) !vo
 }
 
 fn format_fn_vimgrep(_: *Handler, writer: std.io.AnyWriter, r: SearchResult) !void {
-    try writer.print("TODO IMPLEMENT THIS, BUT: {}\n", .{r});
+    try writer.print("{s}:{d}:{d}: {s}\n", .{r.file_path, r.row, r.col, r.line});
 }
 
 fn format_fn_testing(self: *Handler, writer: std.io.AnyWriter, r: SearchResult) !void {
