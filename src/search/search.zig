@@ -333,7 +333,7 @@ const Tests = struct {
 
     test "search: search function returns empty results when query longer than haystack" {
         defer test_writer.reset();
-        search_fn(&test_handler, "hi", "hih");
+        search_fn(&test_handler, "", "hi", "hih");
 
         try t.expectEqual(0, WriterWrapper.format_count);
     }
@@ -343,13 +343,13 @@ const Tests = struct {
 
     test "search: search function returns some search results" {
         defer test_writer.reset();
-        search_fn(&test_handler, input1, query1);
+        search_fn(&test_handler, "", input1, query1);
         try t.expectEqual(1, WriterWrapper.format_count);
     }
 
     test "search: first result of search function is correct" {
         defer test_writer.reset();
-        search_fn(&test_handler, input1, query1);
+        search_fn(&test_handler, "", input1, query1);
 
         try t.expectEqualStrings("1:6: some bytes here\n", test_writer.get());
     }
@@ -358,21 +358,21 @@ const Tests = struct {
 
     test "search: search function returns 1 match per line" {
         defer test_writer.reset();
-        search_fn(&test_handler, input2, "hi");
+        search_fn(&test_handler, "", input2, "hi");
 
         try t.expectEqual(1, WriterWrapper.format_count);
     }
 
     test "search: search function returns 1 match per line still" {
         defer test_writer.reset();
-        search_fn(&test_handler, input2, "re");
+        search_fn(&test_handler, "", input2, "re");
 
         try t.expectEqual(1, WriterWrapper.format_count);
     }
 
     test "search: search function returns line info per match" {
         defer test_writer.reset();
-        search_fn(&test_handler, "hi hello\nhi hello", "hi");
+        search_fn(&test_handler, "", "hi hello\nhi hello", "hi");
 
         try t.expectEqual(2, WriterWrapper.format_count);
         try t.expectEqualStrings(
@@ -384,7 +384,7 @@ const Tests = struct {
 
     test "search: search function returns line info correctly given multiple lines" {
         defer test_writer.reset();
-        search_fn(&test_handler, "hi\n\nhi", "hi");
+        search_fn(&test_handler, "", "hi\n\nhi", "hi");
 
         try t.expectEqual(2, WriterWrapper.format_count);
         try t.expectEqualStrings(
@@ -398,6 +398,7 @@ const Tests = struct {
         defer test_writer.reset();
         search_fn(
             &test_handler,
+            "",
             "some some some thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeahthisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
             "thisisaverylongquerythatwillspanmorethanthesimdlimitlimitlimithellyeah",
         );

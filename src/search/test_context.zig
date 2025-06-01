@@ -1,4 +1,4 @@
-pub const FnType = *const fn (*ResultHandler, []const u8, []const u8) void;
+pub const FnType = *const fn (*ResultHandler, []const u8, []const u8, []const u8) void;
 pub const FnPair = struct { FnType, []const u8 };
 
 pub const search_fns: []const FnPair = &[_]FnPair{
