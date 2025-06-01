@@ -15,36 +15,33 @@ pub fn Finder(CollectorT: anytype) type {
             }
         };
 
-        pub fn find_files(opts: *Options) !CollectorT {
-            var paths: CollectorT = opts.collector orelse .init(opts.allocator);
-            errdefer paths.deinit();
+        pub fn find_files(opts: *Options) void {
+            opts.collector = opts.collector orelse .init(opts.allocator);
 
             if (opts.path) |path| {
                 var p = path;
                 if (!std.mem.startsWith(u8, path, "./")) {
-                    p = try std.fmt.allocPrint(opts.allocator, "./{s}", .{path});
+                    p = std.fmt.allocPrint(opts.allocator, "./{s}", .{path}) catch return;
                 }
                 if (p[p.len - 1] == '/') p = p[0 .. p.len - 1];
                 const cwd = std.fs.cwd();
-                const stat = try cwd.statFile(p);
+                const stat = cwd.statFile(p) catch return;
                 switch (stat.kind) {
                     .file => {
-                        while (!(try paths.append(p))) {}
-                        return paths;
+                        while (!(try opts.collector.?.append(p))) {}
+                        return;
                     },
                     .directory => {
-                        try find_files_in_dir(p, &paths, opts);
+                        find_files_in_dir(p, opts) catch return;
                     },
                     else => {},
                 }
             } else {
-                try find_files_in_dir(".", &paths, opts);
+                find_files_in_dir(".", opts) catch return;
             }
-
-            return paths;
         }
 
-        fn find_files_in_dir(path: []const u8, paths: *CollectorT, opts: *Options) !void {
+        fn find_files_in_dir(path: []const u8, opts: *Options) !void {
             var dir = try std.fs.cwd().openDir(path, .{ .iterate = true });
             defer dir.close();
             var iter = dir.iterate();
@@ -63,7 +60,7 @@ pub fn Finder(CollectorT: anytype) type {
                         }
 
                         errdefer opts.allocator.free(relative);
-                        while (!(try paths.append(relative))) {}
+                        while (!(try opts.collector.?.append(relative))) {}
                     },
                     .directory => {
                         if (std.mem.eql(u8, e.name, ".git")) continue;
@@ -74,7 +71,7 @@ pub fn Finder(CollectorT: anytype) type {
                         }
 
                         defer opts.allocator.free(relative);
-                        try find_files_in_dir(relative, paths, opts);
+                        try find_files_in_dir(relative, opts);
                     },
                     else => {},
                 }
@@ -105,8 +102,7 @@ test {
         .ignore_hidden = false,
         .gitignorer = .init(&arena_state),
     };
-    const paths = try finder.find_files(&opts);
-    defer paths.deinit();
+    finder.find_files(&opts);
 
     const git_cmd_res = try std.process.Child.run(.{
         .allocator = arena_state.allocator(),
@@ -127,10 +123,11 @@ test {
     // for (paths.items) |p| {
     //     std.debug.print("2: {s}\n", .{p});
     // }
-    try t.expectEqual(git_ls_lines.len, paths.items().len);
+    const paths = opts.collector.?.items();
+    try t.expectEqual(git_ls_lines.len, paths.len);
     var found_equal: usize = 0;
     for (git_ls_lines) |line| {
-        for (paths.items()) |p| {
+        for (paths) |p| {
             if (std.mem.eql(u8, p[2..], line)) found_equal += 1;
         }
     }
