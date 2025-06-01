@@ -6,8 +6,9 @@ const LOCAL_CAPACITY = 8192;
 
 pub fn linear_search(
     result_handler: *ResultHandler,
+    file_path: []const u8,
     haystack: []const u8,
-    query: []const u8,
+    needle: []const u8,
 ) void {
     if (haystack.len > THREADED_THRESHOLD) {
         const cpu_count = @min(MAX_THREADS, std.Thread.getCpuCount() catch DEFAULT_THREADS);
@@ -27,7 +28,7 @@ pub fn linear_search(
             threads[idx] = std.Thread.spawn(
                 .{},
                 linear_search_impl,
-                .{ result_handler, haystack[idx_start..idx_end], query },
+                .{ result_handler, file_path, haystack[idx_start..idx_end], needle },
             ) catch |e| {
                 std.debug.print("got an error while trying to spawn a thread: {}\n", .{e});
                 return;
@@ -35,17 +36,18 @@ pub fn linear_search(
         }
         for (0..cpu_count) |idx_cpu| threads[idx_cpu].join();
     } else {
-        linear_search_impl(result_handler, haystack, query);
+        linear_search_impl(result_handler, file_path, haystack, needle);
     }
 }
 
 pub fn linear_search_impl(
     result_handler: *ResultHandler,
+    file_path: []const u8,
     haystack: []const u8,
-    query: []const u8,
+    needle: []const u8,
 ) void {
-    if (query.len > haystack.len) return;
-    if (query.len == 0) return;
+    if (needle.len > haystack.len) return;
+    if (needle.len == 0) return;
 
     var local = std.ArrayList(u8).initCapacity(std.heap.page_allocator, LOCAL_CAPACITY) catch {
         std.debug.print("encountered an error while trying to allocate a local buffer\n", .{});
@@ -58,9 +60,10 @@ pub fn linear_search_impl(
     var line_iter = mem.splitScalar(u8, haystack, '\n');
     line_loop: while (line_iter.next()) |line| : (count_lines += 1) {
         var col_last: usize = 0;
-        while (mem.indexOfPos(u8, line, col_last, query)) |col| {
+        while (mem.indexOfPos(u8, line, col_last, needle)) |col| {
             col_last = col + 1;
             handle_result(result_handler, &local, writer, .{
+                .file_path = file_path,
                 .row = count_lines,
                 .col = col_last,
                 .line = line,
@@ -79,8 +82,9 @@ pub fn linear_search_impl(
 
 pub fn simd_search(
     result_handler: *ResultHandler,
+    file_path: []const u8,
     haystack: []const u8,
-    query: []const u8,
+    needle: []const u8,
 ) void {
     if (haystack.len > THREADED_THRESHOLD) {
         const cpu_count = @min(MAX_THREADS, std.Thread.getCpuCount() catch DEFAULT_THREADS);
@@ -100,7 +104,7 @@ pub fn simd_search(
             threads[idx] = std.Thread.spawn(
                 .{},
                 simd_search_impl,
-                .{ result_handler, haystack[idx_start..idx_end], query },
+                .{ result_handler, file_path, haystack[idx_start..idx_end], needle },
             ) catch |e| {
                 std.debug.print("got an error while trying to spawn a thread: {}\n", .{e});
                 return;
@@ -108,7 +112,7 @@ pub fn simd_search(
         }
         for (0..cpu_count) |idx_cpu| threads[idx_cpu].join();
     } else {
-        simd_search_impl(result_handler, haystack, query);
+        simd_search_impl(result_handler, file_path, haystack, needle);
     }
 }
 
@@ -120,11 +124,12 @@ const indexes = simd.iota(u8, vector_len);
 
 fn simd_search_impl(
     result_handler: *ResultHandler,
+    file_path: []const u8,
     haystack: []const u8,
-    query: []const u8,
+    needle: []const u8,
 ) void {
-    if (query.len > haystack.len) return;
-    if (query.len == 0) return;
+    if (needle.len > haystack.len) return;
+    if (needle.len == 0) return;
 
     const allocator = std.heap.page_allocator;
     var local = std.ArrayList(u8).initCapacity(allocator, LOCAL_CAPACITY) catch |e| {
@@ -134,14 +139,14 @@ fn simd_search_impl(
     defer local.deinit();
     const writer = local.writer().any();
 
-    const q_start: Vec = @splat(query[0]);
+    const q_start: Vec = @splat(needle[0]);
 
     var current_line: usize = 1;
     var line_iter = mem.splitScalar(u8, haystack, '\n');
     // var line_iter = LineSplitter.init(haystack);
 
     line_loop: while (line_iter.next()) |line| : (current_line += 1) {
-        if (line.len < query.len) continue;
+        if (line.len < needle.len) continue;
 
         var line_pos: usize = 0;
 
@@ -157,18 +162,19 @@ fn simd_search_impl(
 
                     // Check if there's enough room for the full query from the current idx to the end
                     const match_pos = line_pos + idx;
-                    if (match_pos + query.len > line.len) continue;
+                    if (match_pos + needle.len > line.len) continue;
 
                     // Verify the last character matches to filter out obvious non-matches
-                    if (match_pos + query.len - 1 < line.len and
-                        line[match_pos + query.len - 1] != query[query.len - 1])
+                    if (match_pos + needle.len - 1 < line.len and
+                        line[match_pos + needle.len - 1] != needle[needle.len - 1])
                         continue;
 
-                    if (mem.eql(u8, line[match_pos .. match_pos + query.len], query)) {
+                    if (mem.eql(u8, line[match_pos .. match_pos + needle.len], needle)) {
                         handle_result(result_handler, &local, writer, .{
                             .row = current_line,
                             .col = match_pos + 1,
                             .line = line,
+                            .file_path = file_path,
                         }) catch return;
 
                         continue :line_loop;
@@ -181,11 +187,12 @@ fn simd_search_impl(
 
         // Handle the remaining characters that don't fill a complete vector
         const remaining = line.len - line_pos;
-        if (remaining >= query.len) {
+        if (remaining >= needle.len) {
             var pos = line_pos;
-            while (pos <= line.len - query.len) : (pos += 1) {
-                if (mem.eql(u8, line[pos .. pos + query.len], query)) {
+            while (pos <= line.len - needle.len) : (pos += 1) {
+                if (mem.eql(u8, line[pos .. pos + needle.len], needle)) {
                     handle_result(result_handler, &local, writer, .{
+                        .file_path = file_path,
                         .row = current_line,
                         .col = pos + 1,
                         .line = line,
