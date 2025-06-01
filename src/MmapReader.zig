@@ -1,12 +1,19 @@
-data: []const align(heap.page_size_min) u8,
+data: []align(heap.page_size_min) const u8,
+has_data: bool = true,
 
-const Self = @This();
+const MmapReader = @This();
 
-pub fn init(path: []const u8) !Self {
+pub fn init(path: []const u8) !MmapReader {
     const file = try fs.cwd().openFile(path, .{});
     defer file.close();
 
     const stats = try posix.fstat(file.handle);
+    if (stats.size == 0) {
+        return .{
+            .data = &.{},
+            .has_data = false,
+        };
+    }
     const m = try posix.mmap(
         null,
         @intCast(stats.size),
@@ -18,8 +25,8 @@ pub fn init(path: []const u8) !Self {
     return .{ .data = m };
 }
 
-pub fn deinit(self: Self) void {
-    posix.munmap(self.data);
+pub fn deinit(self: MmapReader) void {
+    if (self.has_data) posix.munmap(self.data);
 }
 
 const std = @import("std");

@@ -90,18 +90,15 @@ fn search_thread(needle: []const u8, result_handler: *ResultHandler, collector: 
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const cwd = std.fs.cwd();
-    while (!finished and collector.len() > 0) {
-        while (collector.pop()) |path| {
-            defer std.debug.assert(arena.reset(.retain_capacity));
+    while (collector.pop()) |path| {
+        defer std.debug.assert(arena.reset(.retain_capacity));
 
-            const f = cwd.openFile(path, .{}) catch @panic("couldnt open a file");
-            defer f.close();
-            const haystack = f.readToEndAlloc(arena.allocator(), comptime std.math.maxInt(usize)) catch {
-                @panic("couldnt read file to the end");
-            };
-            lib.search.search.simd_search(result_handler, path, haystack, needle);
-        }
+        const reader = MmapReader.init(path) catch {
+            std.debug.print("path: {s}\n", .{path});
+            @panic("couldnt open file with mmap");
+        };
+        defer reader.deinit();
+        lib.simd_search(result_handler, path, reader.data, needle);
     }
 }
 
@@ -112,3 +109,4 @@ const Queue = fss.Queue([]const u8);
 // const Queue = fss.PathList;
 const finder = fss.Finder(Queue);
 const ResultHandler = lib.ResultHandler;
+const MmapReader = lib.MmapReader;
