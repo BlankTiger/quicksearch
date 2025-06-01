@@ -64,7 +64,11 @@ pub fn QueueWithCap(T: anytype, cap: usize) type {
             }
         }
 
+        // this is obviously wrong and only here to make testing easier
         pub fn items(self: *const Self) []const T {
+            if (!builtin.is_test) {
+                @panic("only for testing");
+            }
             const head = self.head.load(.acquire);
             const tail = self.tail.load(.acquire);
 
@@ -73,4 +77,5 @@ pub fn QueueWithCap(T: anytype, cap: usize) type {
     };
 }
 
+const builtin = @import("builtin");
 const std = @import("std");

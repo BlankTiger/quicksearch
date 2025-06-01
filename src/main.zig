@@ -14,16 +14,17 @@ pub fn main() !void {
         .collector = Queue.init(allocator),
     };
     const finder_thread = try run_finder(&opts);
-    defer {
-        finder_thread.join();
-        finished = true;
-    }
+    defer finder_thread.join();
     try run_search(cli_opts.needle, &opts);
     // for (collector.items()) |f| std.debug.print("found: {s}\n", .{f});
     // std.debug.print("T: {s}\n", .{@typeName(@TypeOf(collector))});
 }
 
-fn parse_args(args: []const []const u8) struct { path: []const u8, file_type: []const u8, needle: []const u8 } {
+fn parse_args(args: []const []const u8) struct {
+    path: []const u8,
+    file_type: []const u8,
+    needle: []const u8,
+} {
     if (args.len < 2) @panic("must provide at least a search query");
 
     const count_additional_args = args.len - 2;
@@ -61,8 +62,6 @@ fn parse_args(args: []const []const u8) struct { path: []const u8, file_type: []
         .needle = needle,
     };
 }
-
-var finished = false;
 
 fn run_finder(opts: *finder.Options) !std.Thread {
     return try .spawn(.{}, finder.find_files, .{opts});

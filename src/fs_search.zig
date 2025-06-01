@@ -17,6 +17,7 @@ pub fn Finder(CollectorT: anytype) type {
 
         pub fn find_files(opts: *Options) void {
             opts.collector = opts.collector orelse .init(opts.allocator);
+            defer opts.collector.?.finish();
 
             if (opts.path) |path| {
                 var p = path;
@@ -39,6 +40,7 @@ pub fn Finder(CollectorT: anytype) type {
             } else {
                 find_files_in_dir(".", opts) catch return;
             }
+
         }
 
         fn find_files_in_dir(path: []const u8, opts: *Options) !void {
@@ -95,7 +97,7 @@ test {
         // std.debug.print("used: {d} KB\n", .{arena_state.queryCapacity() / 1024});
         defer arena_state.deinit();
     }
-    const QueueT = @import("fs_search/queue.zig").Queue([]const u8);
+    const QueueT = @import("fs_search/queue_atomic.zig").Queue([]const u8);
     const finder = Finder(QueueT);
     var opts: finder.Options = .{
         .allocator = arena_state.allocator(),
@@ -139,4 +141,4 @@ const std = @import("std");
 const config = @import("config");
 const GitIgnorer = @import("gitignore.zig").GitIgnorer;
 pub const PathList = @import("fs_search/PathList.zig");
-pub const Queue = @import("fs_search/queue.zig").Queue;
+pub const Queue = @import("fs_search/queue_mutex.zig").Queue;
