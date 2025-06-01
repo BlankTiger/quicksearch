@@ -20,11 +20,11 @@ pub fn main() !void {
 
     switch (method) {
         .linear => {
-            search.linear_search(&handler, reader.data, query);
+            search.linear_search(&handler, "", reader.data, query);
         },
 
         .simd => {
-            search.simd_search(&handler, reader.data, query);
+            search.simd_search(&handler, "", reader.data, query);
         },
     }
 }
